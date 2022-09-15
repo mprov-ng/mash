@@ -1,7 +1,7 @@
 import cmd, sys
 from jinja2 import Environment, BaseLoader, select_autoescape
 from io import StringIO
-
+import csv
 
 class MprovShell(cmd.Cmd):
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
@@ -11,8 +11,11 @@ class MprovShell(cmd.Cmd):
 
   def setFile(self, file):
     self.file = file
+
   def print(self, *args):
+    'Use self.print not print() to output so we can catch it internally.'
     print(*args, file=self.stdout)
+
   def do_connect(self,arg):
     'Connect to an mProv Control Center. Args: <mPCC URL> <( api <api-key> ) | ( user <username> pass <password> )> '
     pass
@@ -57,10 +60,25 @@ class MprovShell(cmd.Cmd):
     return self.do_update(arg)
   
   def do_let(self, arg):
-    'Assign an internal variable'
+    '''
+Assign an variable internal to this shell session.
+
+You can use jinja2 template strings.  They must reference an already available
+internal variable.
+
+Starting a value with a backtick (`) will cause the value to be executed
+as if it was an internal command, capturing its output into the variable.
+
+
+Examples: let foo=bar
+          let something=Something else {{foo}}
+          let another=`pvar something
+          let test=`print I have {{ something }}
+'''
     key,value=arg.split('=',1)
     key = key.strip()
     value = value.strip()
+    value = self.renderString(value)
     #  a backtick at the beginning of a let statement means, run this internal command.
     if value[0] == '`':
       value=self.execInternal(value[1:])    
@@ -69,8 +87,13 @@ class MprovShell(cmd.Cmd):
   
   def do_pvar(self,arg):
     'Display the contents of a variable'
-    if arg in self.variables:
-      self.print(f"{arg}={self.variables[arg]}")
+
+    # see if we have a comma separated list of vars to print
+    csvparser = csv.reader(arg)
+    for vars in csvparser:
+      for varName in vars:
+        if varName in self.variables:
+          self.print(f"{varName}={self.variables[varName]}")
   
   def do_print(self,arg):
     'Print random text and use internal variables via jinja2 template'
