@@ -8,8 +8,5 @@ def getDottedStrValue(dstring, obj):
   objcpy = obj
   keys = dstring.split(".")
   for key in keys:
-    if key in objcpy:
       objcpy = objcpy[key]
-    else:
-      raise AttributeError(name=key, obj=objcpy)
   return objcpy
