@@ -1,13 +1,18 @@
-import cmd, sys
+import cmd, sys, json
+from curses import raw
 from jinja2 import Environment, BaseLoader, select_autoescape
 from io import StringIO
-import csv
+import csv, base64
+import requests
 
 class MprovShell(cmd.Cmd):
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
   file = None
   variables = {}
+  session = requests.Session()
+  mprovURL = ""
+  models=[]
 
   def setFile(self, file):
     self.file = file
@@ -17,8 +22,40 @@ class MprovShell(cmd.Cmd):
     print(*args, file=self.stdout)
 
   def do_connect(self,arg):
-    'Connect to an mProv Control Center. Args: <mPCC URL> <( api <api-key> ) | ( user <username> pass <password> )> '
-    pass
+    '''
+Connect to an mProv Control Center.
+
+Usage: 
+    connect <mprov_url> apikey <api_key> - Connects with an API key
+
+    connect <mprov_url> user <user> password <password> - connects with a username and password.
+    
+    connect - With no arguments, mprov-cmd will try to read the .mprov-cmd.yaml file in the user's 
+    home directory (~/.mprov-cmd.yaml) and then try to read /etc/mprov/mprov-cmd.yaml
+
+    '''
+    args = arg.split(' ')
+    authHeader = ""
+    if len(args) == 0:
+      # TODO: we are reading from a yaml file.
+      self.print("Not Implemented")
+      return
+    if len(args) > 0:
+      self.mprovURL = args[0]
+      if 'apikey' == args[1]: 
+        # we are using an API key
+        authHeader = f"Api-key {args[2]}"
+        
+      if 'user' == args[2]:
+        # We are using plain text auth
+        rawAuthStr=f"{args[2]}:{args[4]}"
+        encAuthStr=base64.b64encode(rawAuthStr)
+        authHeader = f"Basic {encAuthStr}"
+    self._connectToMPCC(authHeader)
+
+
+  def do_disconnect(self, arg):
+    self.session.close()
 
   def do_create(self,arg):
     'Issue a create command to the mPCC. Args create <model> <model args>'
@@ -84,7 +121,24 @@ Examples: let foo=bar
       value=self.execInternal(value[1:])    
 
     self.variables[key]=value
-  
+  def do_models(self,arg):
+    'Display a list of supported data models'
+    for model in self.models:
+      self.print(model)
+
+  def do_model(self, arg):
+    'Display the information about a specific model'
+    model = arg
+    if model in self.models:
+      # grab the data from the mPCC
+      response = self.session.get(f"{self.mprovURL}/datamodel/?model={model}")
+      if response.status_code == 200:
+        self.print(response.text)
+        return
+      self.print(f"Error: Unable to retrieve model {model} from the mPCC.")
+      return
+    self.print(f"Error: Unknown model {model}")
+
   def do_pvar(self,arg):
     'Display the contents of a variable'
 
@@ -115,7 +169,30 @@ Examples: let foo=bar
     )
     templateStr=jinjaEnv.from_string(tempStr)
     return templateStr.render(**self.variables)
+  
+  def _connectToMPCC(self, authHeader):
 
+    self.session.headers.update({
+      'Content-Type': 'application/json',
+      'Authorization': authHeader,
+    })
+    try:
+      response = self.session.get(self.mprovURL, stream=True)
+    except:
+      self.print(f"Error: Unable to communicate with mPCC {self.mprovURL}")
+      return
+    if response.status_code==200:
+      # we connected, get the supported data models.
+      self._getMPCCModels()
+
+  def _getMPCCModels(self):
+    response = self.session.get(f"{self.mprovURL}/datamodel/")
+    if response.status_code == 200:
+      self.models = response.json()['datamodels']
+    else:
+      self.print(f"Error: Unable to retrieve the data models from the mPCC, code: {response.status_code}")
+    
+    
   # pre-process commandline if needed
   def precmd(self, line):
     return line
