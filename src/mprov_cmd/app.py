@@ -177,7 +177,10 @@ Examples: let foo=bar
       for varName in vars:
         if varName in self.variables:
           self.print(f"{varName}={self.variables[varName]}")
-  
+  def do_p(self,arg):
+    'Alias to pvar'
+    self.do_pvar(arg)
+
   def do_print(self,arg):
     'Print random text and use internal variables'
     self.print(arg)
