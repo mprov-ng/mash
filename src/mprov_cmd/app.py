@@ -1,4 +1,6 @@
 import cmd, sys, json
+import os
+from os import fork
 from importlib.util import module_from_spec
 from curses import raw
 from urllib import response
@@ -16,6 +18,7 @@ class MprovShell(cmd.Cmd):
   session = requests.Session()
   mprovURL = ""
   models={}
+  processes = []
 
   def setFile(self, file):
     self.file = file
@@ -58,6 +61,13 @@ Usage:
 
 
   def do_disconnect(self, arg):
+    if(self.processes):
+      self.print("Waiting for background processes")
+      while self.processes:
+        pid, _ = os.wait()
+        if pid != 0:
+          print(f"PID {pid} finished.")
+          self.processes.remove(pid)
     self.session.close()
 
   def do_create(self,arg):
@@ -203,12 +213,15 @@ Examples: let foo=bar
     return templateStr.render(**self.variables)
   
   def _connectToMPCC(self, authHeader):
-    print(authHeader)
     self.session.headers.update({
       'Content-Type': 'application/json',
       'Authorization': authHeader,
+      'Connection': 'close',
     })
     try:
+      adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=20, pool_block=True)
+      self.session.mount('https://', adapter)
+      self.session.mount('http://', adapter)
       response = self.session.get(self.mprovURL, stream=True)
     except:
       self.print(f"Error: Unable to communicate with mPCC {self.mprovURL}")
@@ -218,7 +231,18 @@ Examples: let foo=bar
       self._getMPCCModels()
 
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
-
+    if arg[-1] == '&':
+      # if the last character of the string is an &, fork and return as parent.
+      background = True
+      ret = fork()
+      if ret != 0:
+        # we are parent
+        # Process tracking, 
+        self.processes.append(ret)
+        # do nothing and return.
+        return
+      arg=arg[:-1]
+        
     # parse the model out, and the args, if any were passed.
     try:
       model, model_args = arg.split(' ', 1)
@@ -281,13 +305,13 @@ Examples: let foo=bar
     # TODO: add the ability to detect if we should background the request.
     
     if method == "post":
-      response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData))
+      response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
     elif method == "get":
-      response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}") # TODO: Add query string and ID stuff.
+      response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
     elif method == "patch":
-      response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData)) # TODO:
+      response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
     elif method == "delete":
-      response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}") # TODO
+      response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
     else: 
       response = None
       self.print(f"Error: Unsupported method {method}.")
@@ -310,7 +334,9 @@ Examples: let foo=bar
         return
       self.print("OK")
     else:
-      self.print(f"{response.text}")
+      # self.print(f"{response.text}")
+      # exit because we were backgrounded and forked.  Don't want to return to main.
+      sys.exit(0)
 
 
   def _getMPCCModels(self):
