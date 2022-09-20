@@ -10,6 +10,9 @@ import csv, base64
 import requests
 import shlex
 
+def exception_handler(exc_type, exc_value, exc_traceback):
+  print(f"There was an internal exception. {exc_value}", file=sys.stderr)
+
 class MprovShell(cmd.Cmd):
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
@@ -26,6 +29,10 @@ class MprovShell(cmd.Cmd):
   def print(self, *args):
     'Use self.print not print() to output so we can catch it internally.'
     print(*args, file=self.stdout)
+  
+  def emptyline(self) -> bool:
+    return True
+
 
   def do_connect(self,arg):
     '''
@@ -210,7 +217,11 @@ Examples: let foo=bar
       autoescape=False
     )
     templateStr=jinjaEnv.from_string(tempStr)
-    return templateStr.render(**self.variables)
+    try:
+      return templateStr.render(**self.variables)
+    except Exception as e:
+      self.print(f"Error trying to template, {e.message}")
+    return tempStr
   
   def _connectToMPCC(self, authHeader):
     self.session.headers.update({
