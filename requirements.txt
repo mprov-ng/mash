@@ -1,0 +1,6 @@
+pyyaml  # https://pypi.org/project/PyYAML/ - MIT
+jinja2 # https://pypi.org/project/Jinja2/ - 3 Clause BSD
+requests
+csv
+base64
+shlex
