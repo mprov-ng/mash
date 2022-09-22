@@ -143,6 +143,9 @@ Examples: let foo=bar
     key,value=arg.split('=',1)
     key = key.strip()
     value = value.strip()
+    if value=="":
+      self.print("Error: Empty value in Assignment")
+      return
     #  a backtick at the beginning of a let statement means, run this internal command.
     if value[0] == '`':
       value=self.execInternal(value[1:])    
@@ -378,7 +381,7 @@ Examples: let foo=bar
         if line[0] == "#": 
           continue
         
-        self.onecmd(line)
+        self.onecmd(self.renderString(line))
     else:
       return super().cmdloop(intro=intro)
 
