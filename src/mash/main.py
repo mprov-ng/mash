@@ -2,7 +2,7 @@
 
 import signal, os, sys
 from stat import S_ISFIFO
-from app import MprovShell
+from mash.app import MprovShell
 
 # an exit handler if we need it.
 def exitHandler(signum, frame):
