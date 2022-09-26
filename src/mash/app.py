@@ -19,6 +19,7 @@ class MprovShell(cmd.Cmd):
   mprovURL = ""
   models={}
   processes = []
+  quiet = False
 
   def setFile(self, file):
     self.file = file
@@ -70,7 +71,8 @@ Usage:
       while self.processes:
         pid, _ = os.wait()
         if pid != 0:
-          print(f"PID {pid} finished.")
+          if not self.quiet:
+            print(f"PID {pid} finished.")
           self.processes.remove(pid)
     self.session.close()
 
@@ -216,8 +218,8 @@ Examples: let foo=bar
       loader=BaseLoader,
       autoescape=False
     )
-    templateStr=jinjaEnv.from_string(tempStr)
-    try:
+    try:    
+      templateStr=jinjaEnv.from_string(tempStr)
       return templateStr.render(**self.variables)
     except Exception as e:
       self.print(f"Error trying to template, {e.message}")
@@ -343,7 +345,8 @@ Examples: let foo=bar
         self.variables['MPROV_RESULT'] = None
         self.print("ERROR")
         return
-      self.print("OK")
+      if not self.quiet:
+        self.print("OK")
     else:
       # self.print(f"{response.text}")
       # exit because we were backgrounded and forked.  Don't want to return to main.
@@ -372,6 +375,7 @@ Examples: let foo=bar
 
   def cmdloop(self, intro=None):
     if self.file != None:
+      self.quiet = True
       # we are getting a file piped in.
       # it should be an FD, not a file name.
       for line in self.file:
