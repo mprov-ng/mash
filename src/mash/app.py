@@ -6,20 +6,29 @@ from io import StringIO
 import csv, base64
 import requests
 import shlex
+import yaml
+
 
 def exception_handler(exc_type, exc_value, exc_traceback):
   print(f"There was an internal exception. {exc_value}", file=sys.stderr)
 
 class MprovShell(cmd.Cmd):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.load_config()
+
+  configfile = "/etc/mprov/jobserver.yaml"
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
   file = None
   variables = {}
   session = requests.Session()
   mprovURL = ""
+  apikey = ""
   models={}
   processes = []
   quiet = False
+  config_data={}
 
   def setFile(self, file):
     self.file = file
@@ -31,7 +40,30 @@ class MprovShell(cmd.Cmd):
   def emptyline(self) -> bool:
     return True
 
+  def yaml_include(self, loader, node):
+    # Placeholder: Unused.  
+    return {}
 
+  def load_config(self):
+    # load the config yaml
+    # print(self.configfile)
+    yaml.add_constructor("!include", self.yaml_include)
+    if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
+      self.configfile = os.getcwd() + "/jobserver.yaml"
+    # print(self.configfile)
+    if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
+      print("Error: Unable to find a working config file.")
+      sys.exit(1)
+
+
+    with open(self.configfile, "r") as yamlfile:
+      self.config_data = yaml.load(yamlfile, Loader=yaml.FullLoader)
+    # flatten the config space
+    result = {}
+    for entry in self.config_data:
+      result.update(entry)
+    self.config_data = result
+    
   def do_connect(self,arg):
     '''
 Connect to an mProv Control Center.
@@ -47,11 +79,16 @@ Usage:
     '''
     args = arg.split(' ')
     authHeader = ""
-    if len(args) == 0:
+    if len(args) == 1:
       # TODO: we are reading from a yaml file.
-      self.print("Not Implemented")
-      return
-    if len(args) > 0:
+      if 'apikey' in self.config_data['global']:
+        if self.config_data['global']['apikey'] != "":
+          authHeader = f"Api-Key {self.config_data['global']['apikey']}"  
+      if 'mprovURL' in self.config_data['global']:
+        if self.config_data['global']['mprovURL'] != "":
+          self.mprovURL = self.config_data['global']['mprovURL']
+          
+    if len(args) > 1:
       self.mprovURL = args[0]
       if 'apikey' == args[1]: 
         # we are using an API key
