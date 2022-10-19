@@ -7,6 +7,7 @@ import csv, base64
 import requests
 import shlex
 import yaml
+import importlib
 
 
 def exception_handler(exc_type, exc_value, exc_traceback):
@@ -37,8 +38,11 @@ class MprovShell(cmd.Cmd):
     'Use self.print not print() to output so we can catch it internally.'
     print(*args, file=self.stdout)
   
-  def emptyline(self) -> bool:
-    return True
+  def err(self, *args):
+    print(*args, file=sys.stderr)
+
+  def emptyline(self):
+    return 
 
   def yaml_include(self, loader, node):
     # Placeholder: Unused.  
@@ -63,6 +67,42 @@ class MprovShell(cmd.Cmd):
     for entry in self.config_data:
       result.update(entry)
     self.config_data = result
+
+  def default(self,args):
+    '''
+    Default command to run when the command is not recognized.
+
+    Here we will try to find a plugin with the name that matches the first part of the command,
+    and pass the rest of the line to the plugin
+
+    '''
+    if " " not in args:
+      pluginName = args
+    else:
+      pluginName, args = args.split(" ", 1)
+    pluginMod = importlib.util.find_spec(f"mash.plugins.{pluginName}")
+    if pluginMod is not None:
+      try:
+        plugin = importlib.import_module(f"mash.plugins.{pluginName}")
+        pluginCmd = getattr(plugin, "PluginCMD")
+        if pluginCmd is not None:
+          pluginInstance = pluginCmd(self)
+          if pluginInstance is None:
+            self.err(f"Error: Unable to instantiate plugin {pluginName}")
+            return
+          # send the line off to the plugin
+          pluginInstance.onecmd(args)
+        else:
+          self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
+          return
+      except Exception as e:
+        self.err(f"Error: Exception in plugin {pluginName}. {e}")
+        return
+      return
+      # Look in mash.plugins for mash.plugins.<first arg> for a matching plugin.
+    self.err(f"Error: Unrecognized command {pluginName}")
+
+   
     
   def do_connect(self,arg):
     '''
