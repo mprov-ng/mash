@@ -16,9 +16,8 @@ def exception_handler(exc_type, exc_value, exc_traceback):
 class MprovShell(cmd.Cmd):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    self.load_config()
-
-  configfile = "/etc/mprov/jobserver.yaml"
+    
+  configfile = "/etc/mprov/mash.yaml"
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
   file = None
@@ -52,12 +51,12 @@ class MprovShell(cmd.Cmd):
     # load the config yaml
     # print(self.configfile)
     yaml.add_constructor("!include", self.yaml_include)
-    if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
-      self.configfile = os.getcwd() + "/jobserver.yaml"
+
+    if os.path.isfile(os.path.expanduser("~/.mprov-mash.yaml")) and os.access(os.path.expanduser("~/.mprov-mash.yaml"), os.R_OK):
+      self.configfile = os.path.expanduser("~/.mprov-mash.yaml")
     # print(self.configfile)
     if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
-      print("Error: Unable to find a working config file.")
-      sys.exit(1)
+      return False
 
 
     with open(self.configfile, "r") as yamlfile:
@@ -67,6 +66,7 @@ class MprovShell(cmd.Cmd):
     for entry in self.config_data:
       result.update(entry)
     self.config_data = result
+    return True
 
   def default(self,args):
     '''
@@ -113,32 +113,37 @@ Usage:
 
     connect <mprov_url> user <user> password <password> - connects with a username and password.
     
-    connect - With no arguments, mprov-cmd will try to read the .mprov-cmd.yaml file in the user's 
-    home directory (~/.mprov-cmd.yaml) and then try to read /etc/mprov/mprov-cmd.yaml
+    connect - With no arguments, mash will try to read the .mprov-mash.yaml file in the user's 
+    home directory (~/.mprov-mash.yaml) and then try to read /etc/mprov/mprov-mash.yaml
 
     '''
-    args = arg.split(' ')
     authHeader = ""
-    if len(args) == 1:
-      # TODO: we are reading from a yaml file.
+    if " " not in arg:
+      # we are reading from a yaml file.
+      if not self.load_config():
+        self.err("Unable to find working config file.")
+        return
       if 'apikey' in self.config_data['global']:
         if self.config_data['global']['apikey'] != "":
           authHeader = f"Api-Key {self.config_data['global']['apikey']}"  
       if 'mprovURL' in self.config_data['global']:
         if self.config_data['global']['mprovURL'] != "":
           self.mprovURL = self.config_data['global']['mprovURL']
+    
+    else:
+      args = arg.split(' ')
           
-    if len(args) > 1:
-      self.mprovURL = args[0]
-      if 'apikey' == args[1]: 
-        # we are using an API key
-        authHeader = f"Api-Key {args[2]}"
-        
-      if 'user' == args[2]:
-        # We are using plain text auth
-        rawAuthStr=f"{args[2]}:{args[4]}"
-        encAuthStr=base64.b64encode(rawAuthStr)
-        authHeader = f"Basic {encAuthStr}"
+      if len(args) > 1:
+        self.mprovURL = args[0]
+        if 'apikey' == args[1]: 
+          # we are using an API key
+          authHeader = f"Api-Key {args[2]}"
+          
+        if 'user' == args[2]:
+          # We are using plain text auth
+          rawAuthStr=f"{args[2]}:{args[4]}"
+          encAuthStr=base64.b64encode(rawAuthStr)
+          authHeader = f"Basic {encAuthStr}"
     self._connectToMPCC(authHeader)
 
 
@@ -407,7 +412,7 @@ Examples: let foo=bar
       self.print(f"Error: Unsupported method {method}.")
       return
     
-    if response.status_code < 200 and response.status_code > 299 :
+    if response.status_code < 200 or response.status_code > 299 :
       self.print(f"Error: Communications error with mPCC, code: {response.status_code}")
       self.print(f"{response.text}")
       return
