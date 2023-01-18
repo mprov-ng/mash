@@ -550,10 +550,11 @@ Examples: let foo=bar
 
         line=line.strip()
         # skip comments.
-        if line[0] == "#": 
-          continue
+        if len(line) > 0:
+          if line[0] == "#": 
+            continue
         
-        self.onecmd(self.renderString(line))
+        self.onecmd(self.precmd(line))
     else:
       return super().cmdloop(intro=intro)
 
