@@ -313,13 +313,15 @@ Examples: let foo=bar
       # convert the string to a list
       self.forLoopList = args[2].split(" ")
     else:
+      # print(args)
       if args[2] not in self.variables:
         self.err(f"Error: {args[2]} is not defined")
         return
-      if type(self.variables[args[2]]) is not list():
+      if type(self.variables[args[2]]) is not list:
         self.err(f"Error: {args[2]} must be type list")
         return
-      self.forLoopList = self.variables[arg[2]]
+      # print(args[2])
+      self.forLoopList = self.variables[args[2]]
     self.variables[args[0]] = None
     self.forLoopItemName = args[0]
     
@@ -349,7 +351,20 @@ Examples: let foo=bar
       self.forLoopList=[]
       self.forLoopItemName = ""
             
+  def do_seq(self, arg):
+    '''
+    Syntax: seq <var> <start> <end>
+    Creates a sequence as a list and puts it in variable var
+    '''
+    if " " not in arg:
+      self.err("Error: Invalid Syntax")
+      return
+    args = arg.split(" ")
+    self.variables[args[0]] = []
+    for i in range(int(args[1]), int(args[2]) + 1):
+      self.variables[args[0]].append(i)
 
+    
   def execInternal(self, arg):
     'Executes the specified command, capturing the output, and returning it as a string. '
     old_stout = self.stdout
