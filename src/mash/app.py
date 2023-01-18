@@ -29,6 +29,11 @@ class MprovShell(cmd.Cmd):
   processes = []
   quiet = False
   config_data={}
+  inForLoop = False
+  forLoopCmds = []
+  forLoopItemName = ""
+  forLoopList = [] # the list we will iterate on
+
 
   def setFile(self, file):
     self.file = file
@@ -286,6 +291,65 @@ Examples: let foo=bar
     'Print random text and use internal variables'
     self.print(arg)
 
+  def do_foreach(self, arg):
+    ''' 
+        Run a loop of commands.  Syntax: foreach item in list
+        item is a single item from a list
+        list is an actual array or a white space separated string
+        MUST end your loop with endforeach.
+    '''
+
+    if " " not in arg:
+      self.err("Error: Syntax error")
+      return
+    args = shlex.split(arg, 2)
+    if len(args) < 3 :
+      self.err("Error: Syntax error")
+      return
+    if args[1] != "in":
+      self.err("Error: Syntax error")
+      return
+    if " " in args[2]:
+      # convert the string to a list
+      self.forLoopList = args[2].split(" ")
+    else:
+      if args[2] not in self.variables:
+        self.err(f"Error: {args[2]} is not defined")
+        return
+      if type(self.variables[args[2]]) is not list():
+        self.err(f"Error: {args[2]} must be type list")
+        return
+      self.forLoopList = self.variables[arg[2]]
+    self.variables[args[0]] = None
+    self.forLoopItemName = args[0]
+    
+    self.prompt = "<mProv> -for-> "
+    self.inForLoop = True
+    
+
+  def do_endforeach(self,arg):
+    ''' Ends a foreach loop, attempts to run the loop, 
+        and then returns to normal operation. If any command
+        in the loop fails, the loop stops and an error is set
+    '''
+    self.prompt = "<mProv> # "
+    self.inForLoop = False
+    if len(self.forLoopCmds) > 0:
+      # Run our for loop cmds.
+      for i in self.forLoopList:
+        self.variables[self.forLoopItemName] = i
+        for command in self.forLoopCmds:
+          if self.onecmd(self.renderString(command)) == False:
+            self.err("Error running loop.")
+            self.forLoopCmds.clear()
+            self.forLoopList=[]
+            self.forLoopItemName = ""
+            return
+      self.forLoopCmds.clear()
+      self.forLoopList=[]
+      self.forLoopItemName = ""
+            
+
   def execInternal(self, arg):
     'Executes the specified command, capturing the output, and returning it as a string. '
     old_stout = self.stdout
@@ -452,7 +516,14 @@ Examples: let foo=bar
   # pre-process commandline if needed
   def precmd(self, line):
     # pass the string through the jinja2 template engine and map internal variable values.
-    line = self.renderString(line)
+    if self.inForLoop :
+      # we are in a for loop, so just add the command to the forLoopCmds list
+      if line == "endforeach":
+        return line
+      self.forLoopCmds.append(line)
+      line = ""
+    else:
+      line = self.renderString(line)
     return line
 
   def cmdloop(self, intro=None):
