@@ -8,6 +8,7 @@ import requests
 import shlex
 import yaml
 import importlib
+from pathlib import Path
 
 
 def exception_handler(exc_type, exc_value, exc_traceback):
@@ -85,6 +86,7 @@ class MprovShell(cmd.Cmd):
       pluginName = args
     else:
       pluginName, args = args.split(" ", 1)
+    args = args.replace(pluginName, "")
     pluginMod = importlib.util.find_spec(f"mash.plugins.{pluginName}")
     if pluginMod is not None:
       try:
@@ -96,6 +98,7 @@ class MprovShell(cmd.Cmd):
             self.err(f"Error: Unable to instantiate plugin {pluginName}")
             return
           # send the line off to the plugin
+          print(f"Plugin: {pluginName}")
           pluginInstance.onecmd(args)
         else:
           self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
@@ -107,6 +110,52 @@ class MprovShell(cmd.Cmd):
       # Look in mash.plugins for mash.plugins.<first arg> for a matching plugin.
     self.err(f"Error: Unrecognized command {pluginName}")
 
+  def do_help(self, arg: str) :
+    result = False
+    result = super().do_help(arg)
+    if arg == "":
+      # empty arg, list our plugins
+      print("\nLoaded Plugins:\n===============")
+      plugins = importlib.util.find_spec('mash.plugins')
+      if plugins is not None:
+        submodulePath = Path(plugins.origin).parent
+        with os.scandir(submodulePath) as entries:
+          for plugin in entries:
+            if plugin.name.startswith('__'):
+              continue
+            pluginName, _ = plugin.name.split('.', 1)
+            if plugin.is_file():
+              print(pluginName)
+
+      print("\n")
+    else:
+      print(arg)
+      if " " not in arg:
+        pluginName = arg
+        arg=""
+      else:
+        pluginName, arg = arg.split(" ", 1)
+      pluginMod = importlib.util.find_spec(f"mash.plugins.{pluginName}")
+      if pluginMod is not None:
+        try:
+          plugin = importlib.import_module(f"mash.plugins.{pluginName}")
+          pluginCmd = getattr(plugin, "PluginCMD")
+          if pluginCmd is not None:
+            pluginInstance = pluginCmd(self)
+            if pluginInstance is None:
+              self.err(f"Error: Unable to instantiate plugin {pluginName}")
+              return
+            # send the line off to the plugin
+            pluginInstance.onecmd("help " + arg)
+          else:
+            self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
+            return
+        except Exception as e:
+          self.err(f"Error: Exception in plugin {pluginName}. {e}")
+          return
+        return
+
+    return result
    
     
   def do_connect(self,arg):
@@ -353,16 +402,19 @@ Examples: let foo=bar
             
   def do_seq(self, arg):
     '''
-    Syntax: seq <var> <start> <end>
+    Syntax: seq <var> <start> <end> <width>
     Creates a sequence as a list and puts it in variable var
     '''
     if " " not in arg:
       self.err("Error: Invalid Syntax")
       return
     args = arg.split(" ")
+    width = 1
+    if len(args) > 3:
+      width = int(args[3])
     self.variables[args[0]] = []
     for i in range(int(args[1]), int(args[2]) + 1):
-      self.variables[args[0]].append(i)
+      self.variables[args[0]].append(str(i).zfill(width))
 
     
   def execInternal(self, arg):
@@ -475,8 +527,6 @@ Examples: let foo=bar
           except:
             pass
           queryString += f"{marg}&"
-    
-    # TODO: add the ability to detect if we should background the request.
     
     if method == "post":
       response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)

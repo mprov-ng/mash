@@ -1,5 +1,8 @@
 import cmd, sys
 from mash.utils import rangeToList
+'''
+This plugin is used to perform power functions on nodes through the mPCC.
+'''
 class PluginCMD(cmd.Cmd):
   background=False
   mashCmd = None
@@ -11,6 +14,9 @@ class PluginCMD(cmd.Cmd):
     super().__init__()
 
   def default(self, arg):
+    if arg == "":
+      self.do_help("")
+      return
     if " " not in arg:
       self.do_help(arg)
       return
@@ -29,7 +35,11 @@ bmc power <action> <node_spec>
 Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
     '''
-    action, noderange = arg.split(" ", 3)
+    try:
+      action, noderange = arg.split(" ", 1)
+    except Exception as e:
+      self.do_help("power")
+      return
     nodelist = rangeToList(noderange)
     for node in nodelist:
       response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}power/{action}/?hostname={node}", timeout=None, stream=True)
