@@ -35,6 +35,9 @@ bmc power <action> <node_spec>
 Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
     '''
+    if(self.mashCmd.mprovURL is None) or self.mashCmd.mprovURL == "" :
+      print("ERROR: You probably aren't connected.")
+      return
     try:
       action, noderange = arg.split(" ", 1)
     except Exception as e:
@@ -42,6 +45,7 @@ Examples: bmc power on compute00[01-20,21,23]
       return
     nodelist = rangeToList(noderange)
     for node in nodelist:
+      # print(f"'{self.mashCmd.mprovURL}'")      
       response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}power/{action}/?hostname={node}", timeout=None, stream=True)
     
 
