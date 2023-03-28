@@ -98,7 +98,7 @@ class MprovShell(cmd.Cmd):
             self.err(f"Error: Unable to instantiate plugin {pluginName}")
             return
           # send the line off to the plugin
-          print(f"Plugin: {pluginName}")
+          # print(f"Plugin: {pluginName}")
           pluginInstance.onecmd(args)
         else:
           self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
