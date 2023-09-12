@@ -456,8 +456,9 @@ Examples: let foo=bar
       # we connected, get the supported data models.
       self._getMPCCModels()
   def _parseArgType(self, arg):
-    if arg == None:
+    if arg == None or arg == "''" or arg == "\"\"" or arg="":
       return None
+
     if arg[0] == "[" and arg[len(arg)-1] == "]":
       return arg[1:-1:].split(",")
     if arg[0] == "{" and arg[len(arg)-1] == "}":
