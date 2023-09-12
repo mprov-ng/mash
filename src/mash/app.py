@@ -455,7 +455,15 @@ Examples: let foo=bar
     if response.status_code==200:
       # we connected, get the supported data models.
       self._getMPCCModels()
-
+  def _parseArgType(self, arg):
+    if arg == None:
+      return None
+    if arg[0] == "[" and arg[len(arg)-1] == "]":
+      return arg[1:-1:].split(",")
+    if arg[0] == "{" and arg[len(arg)-1] == "}":
+      self.print(f"Error: dict type not supported yet!")
+      sys.exit(1)
+    return arg
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
     if arg[-1] == '&':
       # if the last character of the string is an &, fork and return as parent.
@@ -495,7 +503,9 @@ Examples: let foo=bar
       for marg in shlex.split(model_args):
         key, value = marg.split("=", 1)
         if key in self.models[model]['fields']:
-          requestData[key]=value
+          # check our value for list or dict and add it to the 
+          # data.
+          requestData[key]=self._parseArgType(value)
           if key == 'id' or key == 'pk':
             idStr=f"{value}/"
         else:
@@ -580,7 +590,11 @@ Examples: let foo=bar
     
   # pre-process commandline if needed
   def precmd(self, line):
-    # pass the string through the jinja2 template engine and map internal variable values.
+
+    # ignore comments.
+    if len(line) > 0:
+          if line[0] == "#": 
+            return ""
     if self.inForLoop :
       # we are in a for loop, so just add the command to the forLoopCmds list
       if line == "endforeach":
@@ -588,6 +602,8 @@ Examples: let foo=bar
       self.forLoopCmds.append(line)
       line = ""
     else:
+      # pass the string through the jinja2 template engine and map internal variable values.
+
       line = self.renderString(line)
     return line
 
