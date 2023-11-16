@@ -214,7 +214,9 @@ Usage:
 
   def do_create(self,arg):
     'Issue a create command to the mPCC. Args create <model> <model args>'
-
+    if arg is None or arg == "": 
+      self.print("No argument specified.")
+      return
     self._sendHttpRequest("post", arg, True)
 
   def do_retrieve(self,arg):
@@ -228,10 +230,16 @@ Return:
   Sets MPROV_RESULT to the python object representing the returned object, or sets
   MPROV_RESULT to None if there was an error.
 '''
+    if arg is None or arg == "": 
+      self.print("No argument specified.")
+      return
     self._sendHttpRequest("get", arg)
     
   def do_update(self,arg):
     'Issue a update command to the mPCC. Args update <model> <model args>'
+    if arg is None or arg == "": 
+      self.print("No argument specified.")
+      return
     self._sendHttpRequest("patch",arg)
     
 
@@ -466,6 +474,9 @@ Examples: let foo=bar
       sys.exit(1)
     return arg
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
+    if arg is None or arg == "":
+      self.print("No argument specified.")
+      return
     if arg[-1] == '&':
       # if the last character of the string is an &, fork and return as parent.
       background = True
