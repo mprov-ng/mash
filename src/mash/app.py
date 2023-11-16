@@ -58,8 +58,11 @@ class MprovShell(cmd.Cmd):
     # print(self.configfile)
     yaml.add_constructor("!include", self.yaml_include)
 
+    if not os.path.isfile(self.configfile) or not os.access(self.configfile,os.R_OK):
+      self.configfile = "/etc/mprov/jobserver.yaml"
     if os.path.isfile(os.path.expanduser("~/.mprov-mash.yaml")) and os.access(os.path.expanduser("~/.mprov-mash.yaml"), os.R_OK):
       self.configfile = os.path.expanduser("~/.mprov-mash.yaml")
+
     # print(self.configfile)
     if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
       return False
