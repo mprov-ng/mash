@@ -81,11 +81,23 @@ class MprovShell(cmd.Cmd):
 
     with open(self.configfile, "r") as yamlfile:
       self.config_data = yaml.load(yamlfile, Loader=yaml.FullLoader)
-    # flatten the config space
-    result = {}
-    for entry in self.config_data:
-      result.update(entry)
-    self.config_data = result
+    # Accept both shapes the file is written in: a top-level mapping
+    # ('global:' as a top-level key, the obvious way to write it) and the
+    # historical top-level list of mappings ('- global: {...}').
+    if isinstance(self.config_data, list):
+      result = {}
+      for entry in self.config_data:
+        if not isinstance(entry, dict):
+          self.err(f"{self.configfile}: expected a mapping or a list of mappings, found a list containing a {type(entry).__name__} (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+          return False
+        result.update(entry)
+      self.config_data = result
+    if not isinstance(self.config_data, dict):
+      self.err(f"{self.configfile}: expected a mapping or a list of mappings, found {type(self.config_data).__name__} (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+      return False
+    if 'global' not in self.config_data or not isinstance(self.config_data['global'], dict):
+      self.err(f"{self.configfile}: config has no 'global' section (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+      return False
     return True
 
   def default(self,args):
