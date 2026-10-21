@@ -1,37 +1,57 @@
 name: Python Module CI and Docker build.
 on:
-  release: 
+  release:
     types: [published]
+  # Pull requests that change the build run it as a dry run: everything up
+  # to publishing, so action and build changes are tested before merge.
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'setup.py'
+      - 'setup.cfg'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - 'VERSION'
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - 
-        name: Checkout 
+      -
+        name: Checkout
         uses: actions/checkout@v2
-      
-      - name: Setup Python 3.8
+
+      - name: Setup Python
         uses: actions/setup-python@v3
         with:
-          python-version: "3.8"
-        
+          python-version: "3.11"
+
       - name: Install Dependancies
         run: |
           sudo apt-get update
           python -m pip install --upgrade pip
-          pip install setuptools build
+          pip install setuptools build twine
           pip install -r requirements.txt
-      
+
+      # A release builds the tag.  A dry run builds the version in VERSION.
       - name: Parse the version
-        id: vars
-        run: echo ::set-output name=tag::$(echo ${GITHUB_REF:10})
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            tag=${GITHUB_REF#refs/tags/}
+          else
+            tag=$(cat VERSION)
+          fi
+          echo "tag=$tag" >> "$GITHUB_ENV"
 
       - name: Build Package
         run: |
-          echo "${{steps.vars.outputs.tag}}" > VERSION
+          echo "$tag" > VERSION
           python -m build
-      
+          twine check dist/*
+
       - name: Publish Package to Pypi
+        if: github.event_name == 'release'
         uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
         with:
           user: __token__
