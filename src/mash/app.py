@@ -18,7 +18,10 @@ class MprovShell(cmd.Cmd):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     
-  configfile = "/etc/mprov/mash.yaml"
+  # config files 'connect' reads, in order of preference.  The first
+  # readable one wins.
+  configfiles = ["~/.mprov-mash.yaml", "/etc/mprov/mash.yaml", "/etc/mprov/jobserver.yaml"]
+  configfile = None
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
   file = None
@@ -58,15 +61,22 @@ class MprovShell(cmd.Cmd):
     # print(self.configfile)
     yaml.add_constructor("!include", self.yaml_include)
 
-    if not os.path.isfile(self.configfile) or not os.access(self.configfile,os.R_OK):
-      self.configfile = "/etc/mprov/jobserver.yaml"
-    if os.path.isfile(os.path.expanduser("~/.mprov-mash.yaml")) and os.access(os.path.expanduser("~/.mprov-mash.yaml"), os.R_OK):
-      self.configfile = os.path.expanduser("~/.mprov-mash.yaml")
-
-    # print(self.configfile)
-    if not(os.path.isfile(self.configfile) and os.access(self.configfile, os.R_OK)):
+    self.configfile = None
+    skipped = []
+    for path in self.configfiles:
+      path = os.path.expanduser(path)
+      if not os.path.isfile(path):
+        skipped.append(f"{path}: not found")
+      elif not os.access(path, os.R_OK):
+        skipped.append(f"{path}: permission denied")
+      else:
+        self.configfile = path
+        break
+    if self.configfile is None:
+      self.err("Unable to find a readable config file.  Tried:")
+      for line in skipped:
+        self.err(f"  {line}")
       return False
-
 
     with open(self.configfile, "r") as yamlfile:
       self.config_data = yaml.load(yamlfile, Loader=yaml.FullLoader)
@@ -170,15 +180,15 @@ Usage:
 
     connect <mprov_url> user <user> password <password> - connects with a username and password.
     
-    connect - With no arguments, mash will try to read the .mprov-mash.yaml file in the user's 
-    home directory (~/.mprov-mash.yaml) and then try to read /etc/mprov/mprov-mash.yaml
+    connect - With no arguments, mash reads the mprovURL and apikey from the 'global'
+    section of the first readable file of: ~/.mprov-mash.yaml, /etc/mprov/mash.yaml,
+    /etc/mprov/jobserver.yaml (the job server's own config).
 
     '''
     authHeader = ""
     if " " not in arg:
       # we are reading from a yaml file.
       if not self.load_config():
-        self.err("Unable to find working config file.")
         return
       if 'apikey' in self.config_data['global']:
         if self.config_data['global']['apikey'] != "":
