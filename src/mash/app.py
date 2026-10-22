@@ -4,6 +4,7 @@ from os import fork
 from jinja2 import Environment, BaseLoader
 from io import StringIO
 import csv, base64
+import getpass
 import requests
 import shlex
 import yaml
@@ -179,6 +180,8 @@ Usage:
     connect <mprov_url> apikey <api_key> - Connects with an API key
 
     connect <mprov_url> user <user> password <password> - connects with a username and password.
+
+    connect <mprov_url> user <user> - prompts for the password when run from a terminal.
     
     connect - With no arguments, mash reads the mprovURL and apikey from the 'global'
     section of the first readable file of: ~/.mprov-mash.yaml, /etc/mprov/mash.yaml,
@@ -186,7 +189,8 @@ Usage:
 
     '''
     authHeader = ""
-    if " " not in arg:
+    args = arg.split()
+    if len(args) == 0:
       # we are reading from a yaml file.
       if not self.load_config():
         return
@@ -196,21 +200,33 @@ Usage:
       if 'mprovURL' in self.config_data['global']:
         if self.config_data['global']['mprovURL'] != "":
           self.mprovURL = self.config_data['global']['mprovURL']
-    
+
+    elif len(args) == 3 and args[1] == 'apikey':
+      # we are using an API key
+      self.mprovURL = args[0]
+      authHeader = f"Api-Key {args[2]}"
+
+    elif args[1:2] == ['user'] and (len(args) == 3 or (len(args) == 5 and args[3] == 'password')):
+      # We are using plain text auth
+      if len(args) == 5:
+        password = args[4]
+      elif sys.stdin.isatty():
+        try:
+          password = getpass.getpass(f"Password for {args[2]}: ")
+        except EOFError:
+          # ^D at the prompt cancels the connect.
+          self.err("")
+          return
+      else:
+        self.err("connect: no password given, and stdin isn't a terminal to prompt on.")
+        return
+      self.mprovURL = args[0]
+      encAuthStr = base64.b64encode(f"{args[2]}:{password}".encode()).decode()
+      authHeader = f"Basic {encAuthStr}"
+
     else:
-      args = arg.split(' ')
-          
-      if len(args) > 1:
-        self.mprovURL = args[0]
-        if 'apikey' == args[1]: 
-          # we are using an API key
-          authHeader = f"Api-Key {args[2]}"
-          
-        if 'user' == args[2]:
-          # We are using plain text auth
-          rawAuthStr=f"{args[2]}:{args[4]}"
-          encAuthStr=base64.b64encode(rawAuthStr)
-          authHeader = f"Basic {encAuthStr}"
+      self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]]")
+      return
     self._connectToMPCC(authHeader)
 
 
