@@ -100,6 +100,13 @@ def test_malformed_commands_print_usage_and_do_not_connect(shell, args, capsys):
   assert USAGE in capsys.readouterr().err
 
 
+def test_url_is_stored_with_exactly_one_trailing_slash(shell):
+  # mprov-ng/mash#24: every request path concatenates onto mprovURL, so
+  # connect normalizes whatever form the user typed.
+  shell.onecmd("connect http://mpcc apikey abc123")
+  assert shell.mprovURL == "http://mpcc/"
+
+
 def test_no_arguments_still_reads_the_config(shell, capsys):
   shell.onecmd("connect")
   assert shell.connected == []
