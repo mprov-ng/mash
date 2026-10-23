@@ -1,7 +1,8 @@
 import cmd, sys, json
 import os
 from os import fork
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader
+from jinja2.sandbox import SandboxedEnvironment
 from io import StringIO
 import csv, base64
 import getpass
@@ -464,7 +465,7 @@ Examples: let foo=bar
 
   def renderString(self, tempStr):
     'use the internal variables to render a string.'
-    jinjaEnv = Environment(
+    jinjaEnv = SandboxedEnvironment(
       loader=BaseLoader,
       autoescape=False
     )
