@@ -44,9 +44,22 @@ Examples: bmc power on compute00[01-20,21,23]
       self.do_help("power")
       return
     nodelist = rangeToList(noderange)
+    failed = False
     for node in nodelist:
-      # print(f"'{self.mashCmd.mprovURL}'")      
-      response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
+      try:
+        response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
+      except Exception as e:
+        # One dead node must not abort the rest of the range.
+        failed = True
+        print(f"{node}: ERROR {e}")
+        continue
+      if 200 <= response.status_code < 300:
+        print(f"{node}: {response.text.strip() or 'OK'}")
+      else:
+        failed = True
+        print(f"{node}: ERROR code {response.status_code}: {response.text.strip()}")
+    if failed:
+      self.mashCmd.err(f"Error: 'bmc power {action}' failed on one or more nodes.")
     
 
   def precmd(self, line: str) -> str:
