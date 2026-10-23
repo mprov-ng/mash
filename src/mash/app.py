@@ -364,11 +364,10 @@ Examples: let foo=bar
       else:
         self.print(f"Error: Unknown variable {arg}")
       return
-    csvparser = csv.reader(arg)
-    for vars in csvparser:
-      for varName in vars:
-        if varName in self.variables:
-          self.print(f"{varName}={self.variables[varName]}")
+    for varName in arg.split(','):
+      varName = varName.strip()
+      if varName in self.variables:
+        self.print(f"{varName}={self.variables[varName]}")
   def do_p(self,arg):
     'Alias to pvar'
     self.do_pvar(arg)
