@@ -388,7 +388,7 @@ Examples: let foo=bar
     if " " not in arg:
       self.err("Error: Syntax error")
       return
-    args = shlex.split(arg, 2)
+    args = arg.split(None, 2)
     if len(args) < 3 :
       self.err("Error: Syntax error")
       return
