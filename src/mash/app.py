@@ -129,7 +129,7 @@ class MprovShell(cmd.Cmd):
     result = super().do_help(arg)
     if arg == "":
       # empty arg, list our plugins
-      print("\nLoaded Plugins:\n===============")
+      self.print("\nLoaded Plugins:\n===============")
       plugins = importlib.util.find_spec('mash.plugins')
       if plugins is not None:
         submodulePath = Path(plugins.origin).parent
@@ -139,11 +139,11 @@ class MprovShell(cmd.Cmd):
               continue
             pluginName, _ = plugin.name.split('.', 1)
             if plugin.is_file():
-              print(pluginName)
+              self.print(pluginName)
 
-      print("\n")
+      self.print("\n")
     else:
-      print(arg)
+      self.print(arg)
       if " " not in arg:
         pluginName = arg
         arg=""
