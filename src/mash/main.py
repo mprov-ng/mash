@@ -1,15 +1,11 @@
 #!/usr/bin/python3
 
-import signal, os, sys
+import sys
 from mash.app import MprovShell
 
-# an exit handler if we need it.
-def exitHandler(signum, frame):
-  pass
-
-# setup an exit handler.
-signal.signal(signal.SIGINT, exitHandler)
-signal.signal(signal.SIGTERM, exitHandler)
+# SIGINT and SIGTERM keep Python's default handling, so a hung request
+# can always be interrupted (#30).  The interactive shell turns Ctrl-C
+# into "back to the prompt" in MprovShell.cmdloop().
 
 
 def main():
@@ -29,7 +25,12 @@ def main():
     shell.setFile(sys.stdin)
   else:
     shell.setFile(None)
-  shell.cmdloop()
+  try:
+    shell.cmdloop()
+  except KeyboardInterrupt:
+    # Ctrl-C in a script stops it, with the shell's usual 128 + SIGINT.
+    print("", file=sys.stderr)
+    sys.exit(130)
 
 def __main__():
   main()

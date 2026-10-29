@@ -11,6 +11,21 @@ import shlex
 import yaml
 import importlib
 from pathlib import Path
+from urllib3.util.retry import Retry
+
+# (connect, read) seconds for every call to the mPCC; 'timeout' in the
+# config's 'global' section overrides the read part (#29).
+DEFAULT_TIMEOUT = (10, 120)
+
+
+class TimeoutSession(requests.Session):
+  'A Session whose requests time out unless the caller passes its own timeout.'
+  timeout = DEFAULT_TIMEOUT
+
+  def request(self, method, url, **kwargs):
+    if kwargs.get('timeout') is None:
+      kwargs['timeout'] = self.timeout
+    return super().request(method, url, **kwargs)
 
 
 class MprovShell(cmd.Cmd):
@@ -25,7 +40,7 @@ class MprovShell(cmd.Cmd):
   prompt = '<mProv> # '
   file = None
   variables = {}
-  session = requests.Session()
+  session = TimeoutSession()
   mprovURL = ""
   apikey = ""
   models={}
@@ -202,7 +217,11 @@ Usage:
     
     connect - With no arguments, mash reads the mprovURL and apikey from the 'global'
     section of the first readable file of: ~/.mprov-mash.yaml, /etc/mprov/mash.yaml,
-    /etc/mprov/jobserver.yaml (the job server's own config).
+    /etc/mprov/jobserver.yaml (the job server's own config).  An optional 'timeout'
+    there sets how many seconds to wait for a reply (default 120).
+
+    Every request gives up after 10 seconds without a connection or the timeout
+    without a reply.  Ctrl-C stops a command that is waiting.
 
     '''
     authHeader = ""
@@ -217,6 +236,15 @@ Usage:
       if 'mprovURL' in self.config_data['global']:
         if self.config_data['global']['mprovURL'] != "":
           self.mprovURL = self.config_data['global']['mprovURL']
+      if 'timeout' in self.config_data['global']:
+        try:
+          readTimeout = float(self.config_data['global']['timeout'])
+          if readTimeout <= 0:
+            raise ValueError
+        except (TypeError, ValueError):
+          self.err(f"{self.configfile}: 'timeout' must be a number of seconds greater than 0")
+          return
+        self.session.timeout = (DEFAULT_TIMEOUT[0], readTimeout)
 
     elif len(args) == 3 and args[1] == 'apikey':
       # we are using an API key
@@ -522,11 +550,13 @@ Examples: let foo=bar
       'Connection': 'close',
     })
     try:
-      adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=20, pool_block=True)
+      # retry failed connections, but not a request that timed out waiting
+      # for its reply, or a hung mPCC holds every GET for 21 timeouts (#29).
+      adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=Retry(total=20, read=0), pool_block=True)
       self.session.mount('https://', adapter)
       self.session.mount('http://', adapter)
       response = self.session.get(self.mprovURL, stream=True)
-    except:
+    except Exception:
       self.print(f"Error: Unable to communicate with mPCC {self.mprovURL}")
       return
     if response.status_code==200:
@@ -650,25 +680,25 @@ Examples: let foo=bar
     
     if method == "post":
       try:
-        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
+        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, stream=True)
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "get":
       try:
-        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
+        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", stream=True) # TODO: Add query string and ID stuff.
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "patch":
       try:
-        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
+        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), stream=True) # TODO:
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "delete":
       try:
-        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
+        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", stream=True) # TODO
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
@@ -686,7 +716,7 @@ Examples: let foo=bar
     if not background:
       try:
         self.variables['MPROV_RESULT'] = response.json()
-      except: 
+      except Exception:
         print("Error setting MPROV_RESULT")
         # self.print(f"{response.text}")
         self.print("ERROR")
@@ -750,7 +780,14 @@ Examples: let foo=bar
         
         self.onecmd(self.precmd(line))
     else:
-      return super().cmdloop(intro=intro)
+      # Ctrl-C stops the command that is running (or the line being typed)
+      # and goes back to the prompt, like bash (#30).
+      while True:
+        try:
+          return super().cmdloop(intro=intro)
+        except KeyboardInterrupt:
+          self.err("^C")
+          intro = ""
 
 
 
