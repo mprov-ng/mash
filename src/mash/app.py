@@ -99,9 +99,9 @@ class MprovShell(cmd.Cmd):
     '''
     if " " not in args:
       pluginName = args
+      args = ""
     else:
       pluginName, args = args.split(" ", 1)
-    args = args.replace(pluginName, "")
     pluginMod = importlib.util.find_spec(f"mash.plugins.{pluginName}")
     if pluginMod is not None:
       try:
