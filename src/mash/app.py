@@ -240,6 +240,10 @@ Usage:
     else:
       self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]]")
       return
+    # Everything that talks to the mPCC concatenates paths onto mprovURL, so
+    # store it without a trailing slash; callers add the slash they need.
+    if self.mprovURL:
+      self.mprovURL = self.mprovURL.rstrip("/")
     self._connectToMPCC(authHeader)
 
 

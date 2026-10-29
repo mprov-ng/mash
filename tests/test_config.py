@@ -102,4 +102,4 @@ def test_connect_uses_jobserver_yaml(shell, paths, monkeypatch):
   monkeypatch.setattr(shell, "_connectToMPCC", lambda *a: called.append(a))
   shell.onecmd("connect")
   assert called == [("Api-Key jobserver-key",)]
-  assert shell.mprovURL == "http://mpcc-from-jobserver/"
+  assert shell.mprovURL == "http://mpcc-from-jobserver"

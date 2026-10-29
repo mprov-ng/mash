@@ -46,7 +46,7 @@ Examples: bmc power on compute00[01-20,21,23]
     nodelist = rangeToList(noderange)
     for node in nodelist:
       # print(f"'{self.mashCmd.mprovURL}'")      
-      response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}power/{action}/?hostname={node}", timeout=None, stream=True)
+      response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
     
 
   def precmd(self, line: str) -> str:
