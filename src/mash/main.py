@@ -27,6 +27,9 @@ def main():
     shell.setFile(None)
   try:
     shell.cmdloop()
+    if shell.file is not None:
+      # a script exits 1 if any command in it failed (#32)
+      sys.exit(shell.scriptStatus())
   except KeyboardInterrupt:
     # Ctrl-C in a script stops it, with the shell's usual 128 + SIGINT.
     print("", file=sys.stderr)

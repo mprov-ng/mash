@@ -27,8 +27,9 @@ def mash(input):
 
 def test_failed_background_request_does_not_rerun_the_script():
   r = mash("retrieve bogusmodel &\nprint after-1\nprint after-2\ndisconnect\n")
-  assert r.returncode == 0
-  assert "Error: Unknown Model bogusmodel." in r.stdout
+  # the failed background command makes the script exit 1 (#32)
+  assert r.returncode == 1
+  assert "Error: Unknown Model bogusmodel." in r.stderr
   assert r.stdout.count("after-1") == 1
   assert r.stdout.count("after-2") == 1
 

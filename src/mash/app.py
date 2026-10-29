@@ -48,6 +48,7 @@ class MprovShell(cmd.Cmd):
   processes = []
   quiet = False
   config_data={}
+  failed = False # set by err(); makes a script exit 1
   inForLoop = False
   forLoopCmds = []
   forLoopItemName = ""
@@ -69,6 +70,12 @@ class MprovShell(cmd.Cmd):
     print(*args, file=self.stdout)
   
   def err(self, *args):
+    'Report an error on stderr; a script that hit one exits 1 (#31, #32).'
+    self.failed = True
+    print(*args, file=sys.stderr)
+
+  def warn(self, *args):
+    'Like err(), but the command carries on and the exit status is unchanged.'
     print(*args, file=sys.stderr)
 
   def onecmd(self, line):
@@ -287,21 +294,38 @@ Usage:
     self._connectToMPCC(authHeader)
 
 
-  def do_disconnect(self, arg):
+  def _waitForBackground(self):
+    'Wait for the backgrounded commands; one that failed counts as a failure.'
     if(self.processes):
-      self.print("Waiting for background processes")
+      if not self.quiet:
+        self.print("Waiting for background processes")
       while self.processes:
-        pid, _ = os.wait()
+        pid, status = os.wait()
         if pid != 0:
           if not self.quiet:
             print(f"PID {pid} finished.")
+          if status != 0:
+            self.failed = True
           self.processes.remove(pid)
+
+  def scriptStatus(self):
+    'The exit status of a script: 1 if any command in it failed (#32).'
+    self._waitForBackground()
+    return 1 if self.failed else 0
+
+  def _exit(self):
+    if self.file is not None:
+      sys.exit(self.scriptStatus())
+    sys.exit(0)
+
+  def do_disconnect(self, arg):
+    self._waitForBackground()
     self.session.close()
 
   def do_create(self,arg):
     'Issue a create command to the mPCC. Args create <model> <model args>'
     if arg is None or arg == "": 
-      self.print("No argument specified.")
+      self.err("No argument specified.")
       return
     self._sendHttpRequest("post", arg, True)
 
@@ -317,14 +341,14 @@ Return:
   MPROV_RESULT to None if there was an error.
 '''
     if arg is None or arg == "": 
-      self.print("No argument specified.")
+      self.err("No argument specified.")
       return
     self._sendHttpRequest("get", arg)
     
   def do_update(self,arg):
     'Issue a update command to the mPCC. Args update <model> <model args>'
     if arg is None or arg == "": 
-      self.print("No argument specified.")
+      self.err("No argument specified.")
       return
     self._sendHttpRequest("patch",arg)
     
@@ -335,13 +359,13 @@ Return:
 
   def do_exit(self, arg):
     'Quit the Shell.'
-    sys.exit(0)
+    self._exit()
   def do_quit(self, arg):
     'Quit the Shell.'
-    sys.exit(0)
+    self._exit()
   def do_EOF(self, arg):
     'Quit the Shell.'
-    sys.exit(0)
+    self._exit()
     
   # alias the http methods to their CRUD equivs.
   def do_post(self, arg):
@@ -379,7 +403,7 @@ Examples: let foo=bar
     key = key.strip()
     value = value.strip()
     if value=="":
-      self.print("Error: Empty value in Assignment")
+      self.err("Error: Empty value in Assignment")
       return
     #  a backtick at the beginning of a let statement means, run this internal command,
     #  and assign its output as is (it may be empty, or start with a '$').
@@ -395,7 +419,7 @@ Examples: let foo=bar
         self.variables[key] = self.variables[intVar]
         return
       else:
-        self.print(f"Error: Undefined variable ${intVar}")
+        self.err(f"Error: Undefined variable ${intVar}")
         return
     
     # otherwise, assign the given value.
@@ -414,7 +438,7 @@ Examples: let foo=bar
       self.print(self.models[model])
       
       return
-    self.print(f"Error: Unknown model {model}")
+    self.err(f"Error: Unknown model {model}")
 
   def do_pvar(self,arg):
     'Display the contents of a variable, or a comma separated list of variables'
@@ -424,7 +448,7 @@ Examples: let foo=bar
       if arg in self.variables:
         self.print(f"{arg}={self.variables[arg]}")
       else:
-        self.print(f"Error: Unknown variable {arg}")
+        self.err(f"Error: Unknown variable {arg}")
       return
     for varName in arg.split(','):
       varName = varName.strip()
@@ -565,7 +589,7 @@ Examples: let foo=bar
       self.session.mount('http://', adapter)
       response = self.session.get(self.mprovURL, stream=True)
     except Exception:
-      self.print(f"Error: Unable to communicate with mPCC {self.mprovURL}")
+      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}")
       return
     if response.status_code==200:
       # we connected, get the supported data models.
@@ -587,11 +611,12 @@ Examples: let foo=bar
     "return self._httpErrorExit()".
     """
     self.variables["MPROV_RESULT"] = None
+    self.failed = True
     return
 
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
     if arg is None or arg == "":
-      self.print("No argument specified.")
+      self.err("No argument specified.")
       return self._httpErrorExit()
     if arg[-1] == '&' and not background:
       # if the last character of the string is an &, fork and return as parent.
@@ -613,7 +638,8 @@ Examples: let foo=bar
       finally:
         self.stdout.flush()
         sys.stderr.flush()
-        os._exit(0)
+        # the parent counts a non-zero exit as a failed command (#32)
+        os._exit(1 if self.failed else 0)
 
     # parse the model out, and the args, if any were passed.
     try:
@@ -623,14 +649,14 @@ Examples: let foo=bar
       model_args = ""
       
     if model not in self.models:
-      self.print(f"Error: Unknown Model {model}.")
+      self.err(f"Error: Unknown Model {model}.")
       return self._httpErrorExit()
     
     # get the endpoint
     if 'endpoint' in self.models[model]:
       mEndpoint = self.models[model]['endpoint']
     else:
-      self.print(f"Error: Model {model} does not seem to have a registered endpoint in the mPCC.")
+      self.err(f"Error: Model {model} does not seem to have a registered endpoint in the mPCC.")
       return self._httpErrorExit()
     requestData = {}
     idStr = ""
@@ -659,15 +685,15 @@ Examples: let foo=bar
           if key == 'id' or key == 'pk':
             idStr=f"{value}/"
         else:
-          self.print(f"Error: Model {model} does not have field {key}")
-          self.print(f"Check 'model {model}' and try again.")
+          self.err(f"Error: Model {model} does not have field {key}")
+          self.err(f"Check 'model {model}' and try again.")
           return self._httpErrorExit()
       if checkargs:
         # make sure the required fields are present
         for field in self.models[model]['fields']:
           if field not in requestData and self.models[model]['fields'][field]['required']:
-            self.print(f"Error: Missing field required {field} for model {model}.")
-            self.print(f"Check 'model {model}' and try again.")
+            self.err(f"Error: Missing field required {field} for model {model}.")
+            self.err(f"Check 'model {model}' and try again.")
             return self._httpErrorExit()
     elif method == "get" or method == "delete":
       # every token is key=value; requests encodes them, so a value with
@@ -682,41 +708,41 @@ Examples: let foo=bar
           idStr = f"{quote(value, safe='')}/"
         elif key not in self.models[model].get('fields', {}) and key not in self.queryKeys:
           # the mPCC ignores filters it doesn't know, so warn rather than refuse.
-          self.err(f"Warning: Model {model} has no field {key}; the mPCC may ignore this filter and match every row.")
+          self.warn(f"Warning: Model {model} has no field {key}; the mPCC may ignore this filter and match every row.")
         queryParams.append((key, value))
     
     if method == "post":
       try:
         response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, data=json.dumps(requestData), headers={'Connection':'close'}, stream=True)
       except requests.RequestException as e:
-        self.print(f"Error: {e}")
+        self.err(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "get":
       try:
         response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, stream=True) # TODO: Add query string and ID stuff.
       except requests.RequestException as e:
-        self.print(f"Error: {e}")
+        self.err(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "patch":
       try:
         response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, data=json.dumps(requestData), stream=True) # TODO:
       except requests.RequestException as e:
-        self.print(f"Error: {e}")
+        self.err(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "delete":
       try:
         response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, stream=True) # TODO
       except requests.RequestException as e:
-        self.print(f"Error: {e}")
+        self.err(f"Error: {e}")
         return self._httpErrorExit()
     else: 
       response = None
-      self.print(f"Error: Unsupported method {method}.")
+      self.err(f"Error: Unsupported method {method}.")
       return self._httpErrorExit()
     
     if response.status_code < 200 or response.status_code > 299 :
-      self.print(f"Error: Communications error with mPCC, code: {response.status_code}")
-      self.print(f"{response.text}")
+      self.err(f"Error: Communications error with mPCC, code: {response.status_code}")
+      self.err(f"{response.text}")
       return self._httpErrorExit()
 
     # only assign MPROV_RESULT if we are not running in the background/parallel.  
@@ -724,9 +750,7 @@ Examples: let foo=bar
       try:
         self.variables['MPROV_RESULT'] = response.json()
       except Exception:
-        print("Error setting MPROV_RESULT")
-        # self.print(f"{response.text}")
-        self.print("ERROR")
+        self.err("Error: the mPCC's reply isn't JSON; MPROV_RESULT not set")
         return self._httpErrorExit()
       if not self.quiet:
         self.print("OK")
@@ -743,11 +767,11 @@ Examples: let foo=bar
       for model in modellist:
         response = self.session.get(f"{self.mprovURL}/datamodel/?model={model}")
         if response.status_code != 200:
-          self.print(f"Error: Unable to retrieve data structure for model {model}, code: {response.status_code}")
+          self.err(f"Error: Unable to retrieve data structure for model {model}, code: {response.status_code}")
           continue
         self.models[model] = response.json()
     else:
-      self.print(f"Error: Unable to retrieve the data models from the mPCC, code: {response.status_code}")
+      self.err(f"Error: Unable to retrieve the data models from the mPCC, code: {response.status_code}")
     
     
   # pre-process commandline if needed
