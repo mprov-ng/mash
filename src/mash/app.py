@@ -555,18 +555,28 @@ Examples: let foo=bar
     if arg is None or arg == "":
       self.print("No argument specified.")
       return self._httpErrorExit()
-    if arg[-1] == '&':
+    if arg[-1] == '&' and not background:
       # if the last character of the string is an &, fork and return as parent.
-      background = True
       ret = fork()
       if ret != 0:
         # we are parent
-        # Process tracking, 
+        # Process tracking,
         self.processes.append(ret)
         # do nothing and return.
         return
-      arg=arg[:-1]
-        
+      # we are the child: run the request, then always exit, so an error
+      # path can't return into the parent's script and run the rest of it
+      # a second time.
+      try:
+        self._sendHttpRequest(method, arg[:-1], checkargs, background=True)
+      except BaseException as e:
+        if not isinstance(e, SystemExit):
+          self.err(f"Error: {type(e).__name__}: {e}")
+      finally:
+        self.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
+
     # parse the model out, and the args, if any were passed.
     try:
       model, model_args = arg.split(' ', 1)
