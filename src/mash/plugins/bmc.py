@@ -36,15 +36,13 @@ Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
     '''
     if(self.mashCmd.mprovURL is None) or self.mashCmd.mprovURL == "" :
-      self.mashCmd.print("ERROR: You probably aren't connected.")
+      self.mashCmd.err("ERROR: You probably aren't connected.")
       return
     try:
       action, noderange = arg.split(" ", 1)
     except Exception as e:
       self.do_help("power")
       return
-    # Normalize action name for chassis_status display.
-    display_action = action
     nodelist = rangeToList(noderange)
     failed = False
     for node in nodelist:

@@ -22,12 +22,20 @@ def shell(monkeypatch):
   ("help", "Loaded Plugins:"),
   ("help bmc power", "Manage the power of a node"),
   ("bmc help power", "Manage the power of a node"),
-  ("bmc power on node01", "ERROR: You probably aren't connected."),
 ])
 def test_plugin_output_uses_shell_stdout(shell, capsys, command, expected):
   shell.onecmd(command)
   assert expected in shell.stdout.getvalue()
   assert capsys.readouterr().out == ""
+
+
+def test_plugin_errors_go_to_stderr(shell, capsys):
+  # Errors stay off stdout so they don't end up in captured or piped output (#31).
+  shell.onecmd("bmc power on node01")
+  assert shell.stdout.getvalue() == ""
+  captured = capsys.readouterr()
+  assert "ERROR: You probably aren't connected." in captured.err
+  assert captured.out == ""
 
 
 def test_plugin_uses_shell_streams(shell):
