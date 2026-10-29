@@ -3,8 +3,11 @@ from mash.utils import rangeToList
 '''
 This plugin is used to perform power functions on nodes through the mPCC.
 '''
+# the actions the mPCC's /power/<action>/ carries out; it answers 200 to
+# any other action and does nothing, so mash checks first (#41).
+POWER_ACTIONS = ['on', 'off', 'cycle', 'reset', 'status', 'pxe', 'pxeefi']
+
 class PluginCMD(cmd.Cmd):
-  background=False
   mashCmd = None
   def __init__(self, mashCmd=None):
     if mashCmd is None:
@@ -29,11 +32,17 @@ Manage the power of a node or set of nodes via the BMC, if configured.
 
 bmc power <action> <node_spec>
 
-  action:  One of 'on', 'off', 'cycle', or 'reset'
-  node_spec: Either the name of a node, or a node rang in slurm type notation. (ie. compute00[01-30,31,35,36-40,45-99])
+  action:  One of
+             on, off, cycle, reset  power the node on, off, off and on, or reset it
+             status                 show whether the node is powered on
+             pxe, pxeefi            PXE boot the node (legacy BIOS or UEFI) to provision it
+  node_spec: Either the name of a node, or a node range in slurm type notation. (ie. compute00[01-30,31,35,36-40,45-99])
+
+  End the line with '&' to run it in the background.
 
 Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
+          bmc power status compute0050
     '''
     if(self.mashCmd.mprovURL is None) or self.mashCmd.mprovURL == "" :
       self.mashCmd.err("ERROR: You probably aren't connected.")
@@ -42,6 +51,9 @@ Examples: bmc power on compute00[01-20,21,23]
       action, noderange = arg.split(" ", 1)
     except Exception as e:
       self.do_help("power")
+      return
+    if action not in POWER_ACTIONS:
+      self.mashCmd.err(f"Error: unknown power action '{action}' (one of: {', '.join(POWER_ACTIONS)})")
       return
     nodelist = rangeToList(noderange)
     failed = False
@@ -95,9 +107,3 @@ Examples: bmc power on compute00[01-20,21,23]
     if failed:
       self.mashCmd.err(f"Error: 'bmc power {action}' failed on one or more nodes.")
     
-
-  def precmd(self, line: str) -> str:
-    if line[-1] == "&":
-      line = line[:-1]
-      self.background = True
-    return line

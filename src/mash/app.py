@@ -142,7 +142,11 @@ class MprovShell(cmd.Cmd):
     Here we will try to find a plugin with the name that matches the first part of the command,
     and pass the rest of the line to the plugin
 
+    A trailing '&' runs the plugin command in the background, like the
+    CRUD verbs (#37).
     '''
+    if args.endswith("&"):
+      return self._runInBackground(self.default, args[:-1].rstrip())
     if " " not in args:
       pluginName = args
       args = ""
@@ -614,32 +618,36 @@ Examples: let foo=bar
     self.failed = True
     return
 
+  def _runInBackground(self, func, *args, **kwargs):
+    'Run func(*args, **kwargs) in a forked child; the parent tracks it and returns.'
+    ret = fork()
+    if ret != 0:
+      # we are parent
+      # Process tracking,
+      self.processes.append(ret)
+      # do nothing and return.
+      return
+    # we are the child: run the command, then always exit, so an error
+    # path can't return into the parent's script and run the rest of it
+    # a second time.
+    try:
+      func(*args, **kwargs)
+    except BaseException as e:
+      if not isinstance(e, SystemExit):
+        self.err(f"Error: {type(e).__name__}: {e}")
+    finally:
+      self.stdout.flush()
+      sys.stderr.flush()
+      # the parent counts a non-zero exit as a failed command (#32)
+      os._exit(1 if self.failed else 0)
+
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
     if arg is None or arg == "":
       self.err("No argument specified.")
       return self._httpErrorExit()
     if arg[-1] == '&' and not background:
       # if the last character of the string is an &, fork and return as parent.
-      ret = fork()
-      if ret != 0:
-        # we are parent
-        # Process tracking,
-        self.processes.append(ret)
-        # do nothing and return.
-        return
-      # we are the child: run the request, then always exit, so an error
-      # path can't return into the parent's script and run the rest of it
-      # a second time.
-      try:
-        self._sendHttpRequest(method, arg[:-1], checkargs, background=True)
-      except BaseException as e:
-        if not isinstance(e, SystemExit):
-          self.err(f"Error: {type(e).__name__}: {e}")
-      finally:
-        self.stdout.flush()
-        sys.stderr.flush()
-        # the parent counts a non-zero exit as a failed command (#32)
-        os._exit(1 if self.failed else 0)
+      return self._runInBackground(self._sendHttpRequest, method, arg[:-1], checkargs, background=True)
 
     # parse the model out, and the args, if any were passed.
     try:
