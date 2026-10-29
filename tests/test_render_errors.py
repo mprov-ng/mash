@@ -7,6 +7,7 @@ which then ran as the command, and an undefined name rendered as "".  So
 from io import StringIO
 
 import pytest
+import requests
 
 from mash.app import MprovShell
 
@@ -26,7 +27,7 @@ class FakeSession:
 
   def _record(self, method):
     def call(url, **kwargs):
-      self.requests.append((method, url))
+      self.requests.append((method, requests.Request(method, url, params=kwargs.get("params")).prepare().url))
       return FakeResponse()
     return call
 
@@ -76,7 +77,7 @@ def test_render_error_is_reported_on_stderr_not_stdout(shell, capsys):
 def test_defined_names_still_render(shell):
   shell.variables["nodeId"] = "7"
   run(shell, "delete systems.models.System id={{ nodeId }}")
-  assert shell.session.requests == [("delete", "http://mpcc/systems/7/?id=7&")]
+  assert shell.session.requests == [("delete", "http://mpcc/systems/7/?id=7")]
 
 
 def test_render_error_in_a_loop_stops_the_loop(shell, capsys):
