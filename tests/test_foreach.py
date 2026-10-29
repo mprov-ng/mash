@@ -1,23 +1,7 @@
-"""Tests for the foreach loop list parsing (MASH-014).
-
-Runs on a bare stdlib Python: requests/jinja2/yaml are stubbed, the MprovShell
-class itself does not need them until a command that talks to the API runs.
-"""
+"""Tests for the foreach loop list parsing (#34)."""
 import sys
-import types
 import unittest
 from pathlib import Path
-
-
-def _stub_module(name):
-    module = types.ModuleType(name)
-    module.__getattr__ = lambda attr: (lambda *a, **k: None)
-    sys.modules[name] = module
-    return module
-
-
-for _name in ('requests', 'jinja2', 'yaml'):
-    _stub_module(_name)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
 

@@ -396,8 +396,13 @@ Examples: let foo=bar
       self.err("Error: Syntax error")
       return
     if " " in args[2]:
+      # Strip one matching pair of surrounding quotes (quoted inline lists
+      # are the only inline form that worked on master).
+      rest = args[2]
+      if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in ('"', "'"):
+        rest = rest[1:-1]
       # convert the string to a list
-      self.forLoopList = args[2].split(" ")
+      self.forLoopList = rest.split(" ")
     else:
       # print(args)
       if args[2] not in self.variables:
