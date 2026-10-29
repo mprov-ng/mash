@@ -49,6 +49,7 @@ class MprovShell(cmd.Cmd):
   quiet = False
   config_data={}
   failed = False # set by err(); makes a script exit 1
+  configKeys = ('mprovURL', 'apikey', 'timeout') # the 'global' keys mash reads
   inForLoop = False
   forLoopCmds = []
   forLoopItemName = ""
@@ -133,6 +134,30 @@ class MprovShell(cmd.Cmd):
     if 'global' not in self.config_data or not isinstance(self.config_data['global'], dict):
       self.err(f"{self.configfile}: config has no 'global' section (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
       return False
+    return True
+
+  def _checkConfigKeys(self):
+    '''Check the keys of the config just loaded (#44).
+
+    mprovURL and apikey must be set.  In mash's own files an unknown key
+    gets a warning (naming the known key it most likely meant), but the
+    job server's jobserver.yaml has keys of its own, so it isn't checked.
+    '''
+    conf = self.config_data['global']
+    if os.path.basename(self.configfile) != "jobserver.yaml":
+      known = {k.lower(): k for k in self.configKeys}
+      for key in conf:
+        if key in self.configKeys:
+          continue
+        hint = f"; did you mean '{known[str(key).lower()]}'?" if str(key).lower() in known else ""
+        self.warn(f"Warning: {self.configfile}: unknown key '{key}' in 'global'{hint}")
+      for key in self.config_data:
+        if key != 'global':
+          self.warn(f"Warning: {self.configfile}: unknown section '{key}' (only 'global' is read)")
+    for key in ('mprovURL', 'apikey'):
+      if conf.get(key) in (None, ""):
+        self.err(f"{self.configfile}: '{key}' isn't set in 'global' (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+        return False
     return True
 
   def default(self,args):
@@ -249,12 +274,10 @@ Usage:
       # we are reading from a yaml file.
       if not self.load_config():
         return
-      if 'apikey' in self.config_data['global']:
-        if self.config_data['global']['apikey'] != "":
-          authHeader = f"Api-Key {self.config_data['global']['apikey']}"  
-      if 'mprovURL' in self.config_data['global']:
-        if self.config_data['global']['mprovURL'] != "":
-          self.mprovURL = self.config_data['global']['mprovURL']
+      if not self._checkConfigKeys():
+        return
+      authHeader = f"Api-Key {self.config_data['global']['apikey']}"
+      self.mprovURL = self.config_data['global']['mprovURL']
       if 'timeout' in self.config_data['global']:
         try:
           readTimeout = float(self.config_data['global']['timeout'])
@@ -598,6 +621,14 @@ Examples: let foo=bar
     if response.status_code==200:
       # we connected, get the supported data models.
       self._getMPCCModels()
+    else:
+      # the mPCC's / needs a login, so a bad key or password lands here (#38).
+      self.models = {}
+      hint = "; check the API key or user and password" if response.status_code in (401, 403) else ""
+      self.err(f"Error: Unable to connect to mPCC {self.mprovURL}, code: {response.status_code}{hint}")
+      body = response.text.strip()
+      if body:
+        self.err(body[:500])
   def _parseArgType(self, arg):
     if arg == None or arg == "''" or arg == "\"\"" or arg=="":
       return None
