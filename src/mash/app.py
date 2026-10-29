@@ -1,7 +1,7 @@
 import cmd, sys, json
 import os
 from os import fork
-from jinja2 import BaseLoader
+from jinja2 import BaseLoader, StrictUndefined
 from jinja2.sandbox import SandboxedEnvironment
 from io import StringIO
 import csv, base64
@@ -448,7 +448,8 @@ Examples: let foo=bar
       for i in self.forLoopList:
         self.variables[self.forLoopItemName] = i
         for command in self.forLoopCmds:
-          if self.onecmd(self.renderString(command)) == False:
+          rendered = self.renderString(command)
+          if rendered is None or self.onecmd(rendered) == False:
             self.err("Error running loop.")
             self.forLoopCmds.clear()
             self.forLoopList=[]
@@ -484,17 +485,22 @@ Examples: let foo=bar
     return tmpstdout.getvalue()
 
   def renderString(self, tempStr):
-    'use the internal variables to render a string.'
+    '''use the internal variables to render a string.
+
+    Returns None if the template can't be rendered (a syntax error, an
+    undefined name, an attribute the sandbox refuses, ...), so callers
+    don't run the command with the raw or half-rendered text (#57).'''
     jinjaEnv = SandboxedEnvironment(
       loader=BaseLoader,
-      autoescape=False
+      autoescape=False,
+      undefined=StrictUndefined
     )
-    try:    
+    try:
       templateStr=jinjaEnv.from_string(tempStr)
       return templateStr.render(**self.variables)
     except Exception as e:
-      self.print(f"Error trying to template, {e.message}")
-    return tempStr
+      self.err(f"Error trying to template, {e}")
+    return None
   
   def _connectToMPCC(self, authHeader):
     self.session.headers.update({
@@ -690,6 +696,9 @@ Examples: let foo=bar
       # pass the string through the jinja2 template engine and map internal variable values.
 
       line = self.renderString(line)
+      if line is None:
+        # the template failed; renderString reported it, so skip the command.
+        line = ""
     return line
 
   def cmdloop(self, intro=None):
