@@ -50,6 +50,7 @@ class MprovShell(cmd.Cmd):
   config_data={}
   failed = False # set by err(); makes a script exit 1
   configKeys = ('mprovURL', 'apikey', 'timeout') # the 'global' keys mash reads
+  outputMode = "text" # 'output json' prints results as JSON lines (#42)
   inForLoop = False
   forLoopCmds = []
   forLoopItemName = ""
@@ -452,8 +453,33 @@ Examples: let foo=bar
     # otherwise, assign the given value.
     self.variables[key]=value
 
+  def do_output(self, arg):
+    '''
+Choose how results are printed.
+
+Usage:
+    output json - print each command's result as one line of JSON on stdout:
+                  the mPCC's reply for create/retrieve/update/delete (null if
+                  it has none), a list for 'models', an object for 'model'
+                  and 'pvar'.  Errors stay on stderr.
+    output text - the default: OK after a command, Python-style values.
+    output      - show the current mode.
+
+'mash --json' starts in json mode.
+'''
+    arg = arg.strip()
+    if arg == "":
+      self.print(self.outputMode)
+    elif arg in ("json", "text"):
+      self.outputMode = arg
+    else:
+      self.err("Usage: output [json|text]")
+
   def do_models(self,arg):
     'Display a list of supported data models'
+    if self.outputMode == "json":
+      self.printJSON(list(self.models))
+      return
     for model in self.models:
       self.print(model)
 
@@ -461,8 +487,10 @@ Examples: let foo=bar
     'Display the information about a specific model'
     model = arg
     if model in self.models:
-      
-      self.print(self.models[model])
+      if self.outputMode == "json":
+        self.printJSON(self.models[model])
+      else:
+        self.print(self.models[model])
       
       return
     self.err(f"Error: Unknown model {model}")
@@ -473,14 +501,22 @@ Examples: let foo=bar
     # see if we have a comma separated list of vars to print
     if ',' not in arg:
       if arg in self.variables:
-        self.print(f"{arg}={self.variables[arg]}")
+        if self.outputMode == "json":
+          self.printJSON({arg: self.variables[arg]})
+        else:
+          self.print(f"{arg}={self.variables[arg]}")
       else:
         self.err(f"Error: Unknown variable {arg}")
       return
+    found = {}
     for varName in arg.split(','):
       varName = varName.strip()
       if varName in self.variables:
-        self.print(f"{varName}={self.variables[varName]}")
+        found[varName] = self.variables[varName]
+        if self.outputMode != "json":
+          self.print(f"{varName}={self.variables[varName]}")
+    if self.outputMode == "json":
+      self.printJSON(found)
   def do_p(self,arg):
     'Alias to pvar'
     self.do_pvar(arg)
@@ -786,22 +822,36 @@ Examples: let foo=bar
 
     # only assign MPROV_RESULT if we are not running in the background/parallel.  
     if not background:
-      if not response.text.strip():
-        # a successful delete answers 204 with no body (DRF's destroy()),
-        # and some views answer an empty 200: nothing to return (#69).
-        self.variables['MPROV_RESULT'] = None
-      else:
-        try:
-          self.variables['MPROV_RESULT'] = response.json()
-        except Exception:
-          self.err("Error: the mPCC's reply isn't JSON; MPROV_RESULT not set")
-          return self._httpErrorExit()
-      if not self.quiet:
+      try:
+        self.variables['MPROV_RESULT'] = self._replyData(response)
+      except ValueError:
+        self.err("Error: the mPCC's reply isn't JSON; MPROV_RESULT not set")
+        return self._httpErrorExit()
+      if self.outputMode == "json":
+        self.printJSON(self.variables['MPROV_RESULT'])
+      elif not self.quiet:
         self.print("OK")
     else:
-      # self.print(f"{response.text}")
+      if self.outputMode == "json":
+        # a backgrounded command prints its reply too; it has no MPROV_RESULT.
+        try:
+          self.printJSON(self._replyData(response))
+        except ValueError:
+          self.err("Error: the mPCC's reply isn't JSON")
       # exit because we were backgrounded and forked.  Don't want to return to main.
       sys.exit(0)
+
+  def _replyData(self, response):
+    'The data in a 2xx reply; raises ValueError if the body isn\'t JSON.'
+    if not response.text.strip():
+      # a successful delete answers 204 with no body (DRF's destroy()),
+      # and some views answer an empty 200: nothing to return (#69).
+      return None
+    return response.json()
+
+  def printJSON(self, data):
+    'Print data as one line of compact JSON (the output json mode, #42).'
+    self.print(json.dumps(data, separators=(",", ":"), default=str))
 
 
   def _getMPCCModels(self):
