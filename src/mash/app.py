@@ -588,13 +588,29 @@ Examples: let foo=bar
           queryString += f"{marg}&"
     
     if method == "post":
-      response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
+      try:
+        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "get":
-      response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
+      try:
+        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "patch":
-      response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
+      try:
+        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "delete":
-      response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
+      try:
+        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     else: 
       response = None
       self.print(f"Error: Unsupported method {method}.")
