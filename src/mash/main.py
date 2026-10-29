@@ -12,9 +12,13 @@ def main():
   
   shell = MprovShell()
   args = sys.argv[1:]
-  if args[:1] == ['--json']:
-    # results as JSON lines from the start, like 'output json' (#42)
-    shell.outputMode = "json"
+  while args[:1] in (['--json'], ['--dry-run']):
+    if args[0] == '--json':
+      # results as JSON lines from the start, like 'output json' (#42)
+      shell.outputMode = "json"
+    else:
+      # preview changes from the start, like 'dryrun on' (#43)
+      shell.dryRun = True
     args = args[1:]
   
   # Like bash and python: a script file on the command line wins, then a

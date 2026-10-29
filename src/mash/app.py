@@ -51,6 +51,7 @@ class MprovShell(cmd.Cmd):
   failed = False # set by err(); makes a script exit 1
   configKeys = ('mprovURL', 'apikey', 'timeout') # the 'global' keys mash reads
   outputMode = "text" # 'output json' prints results as JSON lines (#42)
+  dryRun = False # 'dryrun on' shows changes instead of sending them (#43)
   inForLoop = False
   forLoopCmds = []
   forLoopItemName = ""
@@ -475,6 +476,42 @@ Usage:
     else:
       self.err("Usage: output [json|text]")
 
+  def do_dryrun(self, arg):
+    '''
+Show what would change on the mPCC without changing it.
+
+Usage:
+    dryrun on  - create/update/delete (and post/patch) and 'bmc power'
+                 actions other than status print the request they would
+                 send instead of sending it:
+                   DRY RUN: <METHOD> <url> [<JSON payload>]
+                 or, with 'output json', one object per request:
+                   {"dry_run":true,"method":...,"url":...,"data":...}
+                 MPROV_RESULT is set to None.  retrieve/get and
+                 'bmc power status' still go out, so foreach loops over
+                 their results can be previewed.
+    dryrun off - the default: send everything.
+    dryrun     - show the current mode.
+
+'mash --dry-run' starts in dry-run mode.
+'''
+    arg = arg.strip()
+    if arg == "":
+      self.print("on" if self.dryRun else "off")
+    elif arg in ("on", "off"):
+      self.dryRun = arg == "on"
+    else:
+      self.err("Usage: dryrun [on|off]")
+
+  def showDryRun(self, method, url, data=None):
+    'Print a request that dry-run mode held back (#43).'
+    if self.outputMode == "json":
+      self.printJSON({"dry_run": True, "method": method, "url": url, "data": data})
+    elif data is None:
+      self.print(f"DRY RUN: {method} {url}")
+    else:
+      self.print(f"DRY RUN: {method} {url} {json.dumps(data)}")
+
   def do_models(self,arg):
     'Display a list of supported data models'
     if self.outputMode == "json":
@@ -786,6 +823,13 @@ Usage:
           self.warn(f"Warning: Model {model} has no field {key}; the mPCC may ignore this filter and match every row.")
         queryParams.append((key, value))
     
+    if self.dryRun and method != "get":
+      url = requests.Request(method.upper(), f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams).prepare().url
+      self.showDryRun(method.upper(), url, requestData if method in ("post", "patch") else None)
+      if not background:
+        self.variables['MPROV_RESULT'] = None
+      return
+
     if method == "post":
       try:
         response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, data=json.dumps(requestData), headers={'Connection':'close'}, stream=True)
