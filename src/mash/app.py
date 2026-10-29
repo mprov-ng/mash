@@ -786,11 +786,16 @@ Examples: let foo=bar
 
     # only assign MPROV_RESULT if we are not running in the background/parallel.  
     if not background:
-      try:
-        self.variables['MPROV_RESULT'] = response.json()
-      except Exception:
-        self.err("Error: the mPCC's reply isn't JSON; MPROV_RESULT not set")
-        return self._httpErrorExit()
+      if not response.text.strip():
+        # a successful delete answers 204 with no body (DRF's destroy()),
+        # and some views answer an empty 200: nothing to return (#69).
+        self.variables['MPROV_RESULT'] = None
+      else:
+        try:
+          self.variables['MPROV_RESULT'] = response.json()
+        except Exception:
+          self.err("Error: the mPCC's reply isn't JSON; MPROV_RESULT not set")
+          return self._httpErrorExit()
       if not self.quiet:
         self.print("OK")
     else:
