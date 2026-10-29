@@ -39,6 +39,7 @@ bmc power <action> <node_spec>
   node_spec: Either the name of a node, or a node range in slurm type notation. (ie. compute00[01-30,31,35,36-40,45-99])
 
   End the line with '&' to run it in the background.
+  With 'dryrun on', every action but status prints its request instead.
 
 Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
@@ -58,6 +59,14 @@ Examples: bmc power on compute00[01-20,21,23]
     nodelist = rangeToList(noderange)
     failed = False
     for node in nodelist:
+      if self.mashCmd.dryRun and action != "status":
+        # only status leaves the node alone (#43)
+        url = f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}"
+        if self.mashCmd.outputMode == "json":
+          self.mashCmd.showDryRun("GET", url)
+        else:
+          self.mashCmd.print(f"{node}: DRY RUN GET {url}")
+        continue
       try:
         response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", stream=True)
       except Exception as e:
