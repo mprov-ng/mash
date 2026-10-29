@@ -13,9 +13,6 @@ import importlib
 from pathlib import Path
 
 
-def exception_handler(exc_type, exc_value, exc_traceback):
-  print(f"There was an internal exception. {exc_value}", file=sys.stderr)
-
 class MprovShell(cmd.Cmd):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -50,6 +47,13 @@ class MprovShell(cmd.Cmd):
   
   def err(self, *args):
     print(*args, file=sys.stderr)
+
+  def onecmd(self, line):
+    'Run one command; an unexpected error ends that command, not the shell (#28).'
+    try:
+      return super().onecmd(line)
+    except Exception as e:
+      self.err(f"Error: {type(e).__name__}: {e}")
 
   def emptyline(self):
     return 
@@ -332,15 +336,20 @@ Examples: let foo=bar
           let another=`pvar something
           let test=`print I have {{ something }}
 '''
+    if '=' not in arg:
+      self.err("Usage: let <name>=<value>")
+      return
     key,value=arg.split('=',1)
     key = key.strip()
     value = value.strip()
     if value=="":
       self.print("Error: Empty value in Assignment")
       return
-    #  a backtick at the beginning of a let statement means, run this internal command.
+    #  a backtick at the beginning of a let statement means, run this internal command,
+    #  and assign its output as is (it may be empty, or start with a '$').
     if value[0] == '`':
-      value=self.execInternal(value[1:])    
+      self.variables[key]=self.execInternal(value[1:])
+      return
     
     # a dollar sign means copy the internal variable to 
     # a new internal variable.
@@ -464,15 +473,17 @@ Examples: let foo=bar
     Syntax: seq <var> <start> <end> <width>
     Creates a sequence as a list and puts it in variable var
     '''
-    if " " not in arg:
-      self.err("Error: Invalid Syntax")
+    args = arg.split()
+    try:
+      if len(args) not in (3, 4):
+        raise ValueError
+      start, end = int(args[1]), int(args[2])
+      width = int(args[3]) if len(args) == 4 else 1
+    except ValueError:
+      self.err("Usage: seq <var> <start> <end> [<width>]  (start, end and width are integers)")
       return
-    args = arg.split(" ")
-    width = 1
-    if len(args) > 3:
-      width = int(args[3])
     self.variables[args[0]] = []
-    for i in range(int(args[1]), int(args[2]) + 1):
+    for i in range(start, end + 1):
       self.variables[args[0]].append(str(i).zfill(width))
 
     
@@ -480,8 +491,10 @@ Examples: let foo=bar
     'Executes the specified command, capturing the output, and returning it as a string. '
     old_stout = self.stdout
     self.stdout = tmpstdout = StringIO()
-    self.onecmd(arg)
-    self.stdout = old_stout
+    try:
+      self.onecmd(arg)
+    finally:
+      self.stdout = old_stout
     return tmpstdout.getvalue()
 
   def renderString(self, tempStr):
@@ -526,8 +539,7 @@ Examples: let foo=bar
     if arg[0] == "[" and arg[len(arg)-1] == "]":
       return arg[1:-1:].split(",")
     if arg[0] == "{" and arg[len(arg)-1] == "}":
-      self.print(f"Error: dict type not supported yet!")
-      sys.exit(1)
+      raise ValueError(f"dict values aren't supported yet: {arg}")
     return arg
   def _httpErrorExit(self):
     """Single exit for every _sendHttpRequest error path (mprov-ng/mash#26).
@@ -543,18 +555,28 @@ Examples: let foo=bar
     if arg is None or arg == "":
       self.print("No argument specified.")
       return self._httpErrorExit()
-    if arg[-1] == '&':
+    if arg[-1] == '&' and not background:
       # if the last character of the string is an &, fork and return as parent.
-      background = True
       ret = fork()
       if ret != 0:
         # we are parent
-        # Process tracking, 
+        # Process tracking,
         self.processes.append(ret)
         # do nothing and return.
         return
-      arg=arg[:-1]
-        
+      # we are the child: run the request, then always exit, so an error
+      # path can't return into the parent's script and run the rest of it
+      # a second time.
+      try:
+        self._sendHttpRequest(method, arg[:-1], checkargs, background=True)
+      except BaseException as e:
+        if not isinstance(e, SystemExit):
+          self.err(f"Error: {type(e).__name__}: {e}")
+      finally:
+        self.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
+
     # parse the model out, and the args, if any were passed.
     try:
       model, model_args = arg.split(' ', 1)
@@ -578,12 +600,24 @@ Examples: let foo=bar
     if method  == "post" or method == "patch":
       
       # check our args against the data structure.
-      for marg in shlex.split(model_args):
+      try:
+        margs = shlex.split(model_args)
+      except ValueError as e:
+        self.err(f"Error: can't parse the arguments: {e}")
+        return self._httpErrorExit()
+      for marg in margs:
+        if "=" not in marg:
+          self.err(f"Error: expected <field>=<value>, got '{marg}'")
+          return self._httpErrorExit()
         key, value = marg.split("=", 1)
         if key in self.models[model]['fields']:
           # check our value for list or dict and add it to the 
           # data.
-          requestData[key]=self._parseArgType(value)
+          try:
+            requestData[key]=self._parseArgType(value)
+          except ValueError as e:
+            self.err(f"Error: {key}: {e}")
+            return self._httpErrorExit()
           if key == 'id' or key == 'pk':
             idStr=f"{value}/"
         else:
