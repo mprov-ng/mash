@@ -36,7 +36,7 @@ Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
     '''
     if(self.mashCmd.mprovURL is None) or self.mashCmd.mprovURL == "" :
-      self.mashCmd.print("ERROR: You probably aren't connected.")
+      self.mashCmd.err("ERROR: You probably aren't connected.")
       return
     try:
       action, noderange = arg.split(" ", 1)
@@ -44,9 +44,56 @@ Examples: bmc power on compute00[01-20,21,23]
       self.do_help("power")
       return
     nodelist = rangeToList(noderange)
+    failed = False
     for node in nodelist:
-      # print(f"'{self.mashCmd.mprovURL}'")      
-      response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
+      try:
+        response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
+      except Exception as e:
+        failed = True
+        self.mashCmd.print(f"{node}: ERROR {e}")
+        continue
+      if 200 <= response.status_code < 300:
+        try:
+          body = response.json()
+        except Exception:
+          body = None
+        if isinstance(body, dict):
+          if len(body) == 0:
+            failed = True
+            self.mashCmd.print(f"{node}: ERROR no BMC configured")
+            continue
+          # Power API returns { "<node>-bmc": <result> } per node.
+          for bmc_name, entry in body.items():
+            if entry is None:
+              self.mashCmd.print(f"{node}: OK")
+            elif isinstance(entry, dict):
+              status = entry.get("status", "")
+              details = entry.get("details", "")
+              # Non-200 status inside body means failure (e.g. 400 timed out, 409 pxe refused)
+              try:
+                status_int = int(status)
+              except Exception:
+                status_int = 200
+              if status_int != 200:
+                failed = True
+                self.mashCmd.print(f"{node}: ERROR {details or entry}")
+              else:
+                # status action may include chassis_status
+                if action == "status" and "chassis_status" in entry:
+                  self.mashCmd.print(f"{node}: {entry['chassis_status']}")
+                elif action == "status" and details:
+                  self.mashCmd.print(f"{node}: {details}")
+                else:
+                  self.mashCmd.print(f"{node}: {response.text.strip() or 'OK'}")
+            else:
+              self.mashCmd.print(f"{node}: {response.text.strip() or 'OK'}")
+        else:
+          self.mashCmd.print(f"{node}: {response.text.strip() or 'OK'}")
+      else:
+        failed = True
+        self.mashCmd.print(f"{node}: ERROR code {response.status_code}: {response.text.strip()}")
+    if failed:
+      self.mashCmd.err(f"Error: 'bmc power {action}' failed on one or more nodes.")
     
 
   def precmd(self, line: str) -> str:
