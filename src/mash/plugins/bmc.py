@@ -11,7 +11,7 @@ class PluginCMD(cmd.Cmd):
       print("ERROR: mashCmd not passed to plugin!", file=sys.stderr)
       return
     self.mashCmd = mashCmd
-    super().__init__()
+    super().__init__(stdin=mashCmd.stdin, stdout=mashCmd.stdout)
 
   def default(self, arg):
     if arg == "":
@@ -36,7 +36,7 @@ Examples: bmc power on compute00[01-20,21,23]
           bmc power off compute0050
     '''
     if(self.mashCmd.mprovURL is None) or self.mashCmd.mprovURL == "" :
-      print("ERROR: You probably aren't connected.")
+      self.mashCmd.print("ERROR: You probably aren't connected.")
       return
     try:
       action, noderange = arg.split(" ", 1)
