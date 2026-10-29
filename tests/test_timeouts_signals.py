@@ -116,7 +116,8 @@ def test_hung_request_times_out_once_and_the_script_goes_on(home, mpcc):
     capture_output=True, text=True, env=env(home(timeout=1)), timeout=30,
   )
   assert time.monotonic() - start < 10
-  assert "Read timed out" in r.stdout
+  assert "Read timed out" in r.stderr
+  assert r.returncode == 1
   assert r.stdout.rstrip().endswith("after")
   # a reply that timed out isn't retried
   assert len(mpcc.hung) == 1
