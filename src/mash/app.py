@@ -8,6 +8,7 @@ import csv, base64
 import getpass
 import requests
 import shlex
+from urllib.parse import quote
 import yaml
 import importlib
 from pathlib import Path
@@ -51,6 +52,13 @@ class MprovShell(cmd.Cmd):
   forLoopCmds = []
   forLoopItemName = ""
   forLoopList = [] # the list we will iterate on
+  # query keys the mPCC reads besides model fields: MProvView's flags and
+  # DRF's search, plus the ones single views take (as of mPCC 2544a86).
+  queryKeys = {
+    'detail', 'self', 'search', 'format',
+    'hostname', 'network', 'isdhcp', 'managedns', 'new_subnet', 'new_netmask',
+    'module', 'params', 'jobserver', 'status', 'powerstate', 'rescue',
+  }
 
 
   def setFile(self, file):
@@ -626,7 +634,7 @@ Examples: let foo=bar
       return self._httpErrorExit()
     requestData = {}
     idStr = ""
-    queryString = ""
+    queryParams = []
     if method  == "post" or method == "patch":
       
       # check our args against the data structure.
@@ -662,43 +670,42 @@ Examples: let foo=bar
             self.print(f"Check 'model {model}' and try again.")
             return self._httpErrorExit()
     elif method == "get" or method == "delete":
-      # build query strings
-      if model_args == "" :
-        queryString=""
-      else:
-        queryString = "?"
-
-        for marg in model_args.split(" "):
-          try:
-            key, value = marg.split('=',1)
-            if key == 'id' or key == 'pk':
-              # we got an id, so add it to the URL
-              idStr=f"{value}/"
-          except:
-            pass
-          queryString += f"{marg}&"
+      # every token is key=value; requests encodes them, so a value with
+      # '&', '#' or '%' in it stays one value (#19, #36).
+      for marg in model_args.split():
+        if "=" not in marg or marg.startswith("="):
+          self.err(f"Error: expected <field>=<value>, got '{marg}'")
+          return self._httpErrorExit()
+        key, value = marg.split("=", 1)
+        if key == 'id' or key == 'pk':
+          # we got an id, so add it to the URL
+          idStr = f"{quote(value, safe='')}/"
+        elif key not in self.models[model].get('fields', {}) and key not in self.queryKeys:
+          # the mPCC ignores filters it doesn't know, so warn rather than refuse.
+          self.err(f"Warning: Model {model} has no field {key}; the mPCC may ignore this filter and match every row.")
+        queryParams.append((key, value))
     
     if method == "post":
       try:
-        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, stream=True)
+        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, data=json.dumps(requestData), headers={'Connection':'close'}, stream=True)
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "get":
       try:
-        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", stream=True) # TODO: Add query string and ID stuff.
+        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, stream=True) # TODO: Add query string and ID stuff.
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "patch":
       try:
-        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), stream=True) # TODO:
+        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, data=json.dumps(requestData), stream=True) # TODO:
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
     elif method == "delete":
       try:
-        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", stream=True) # TODO
+        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}", params=queryParams, stream=True) # TODO
       except requests.RequestException as e:
         self.print(f"Error: {e}")
         return self._httpErrorExit()
