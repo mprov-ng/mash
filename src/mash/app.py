@@ -514,10 +514,20 @@ Examples: let foo=bar
       self.print(f"Error: dict type not supported yet!")
       sys.exit(1)
     return arg
+  def _httpErrorExit(self):
+    """Single exit for every _sendHttpRequest error path (mprov-ng/mash#26).
+
+    Clears MPROV_RESULT so a failed command cannot leave the previous
+    command's result behind.  Error branches should use
+    "return self._httpErrorExit()".
+    """
+    self.variables["MPROV_RESULT"] = None
+    return
+
   def _sendHttpRequest(self, method, arg, checkargs=False, background=False):
     if arg is None or arg == "":
       self.print("No argument specified.")
-      return
+      return self._httpErrorExit()
     if arg[-1] == '&':
       # if the last character of the string is an &, fork and return as parent.
       background = True
@@ -539,14 +549,14 @@ Examples: let foo=bar
       
     if model not in self.models:
       self.print(f"Error: Unknown Model {model}.")
-      return
+      return self._httpErrorExit()
     
     # get the endpoint
     if 'endpoint' in self.models[model]:
       mEndpoint = self.models[model]['endpoint']
     else:
       self.print(f"Error: Model {model} does not seem to have a registered endpoint in the mPCC.")
-      return
+      return self._httpErrorExit()
     requestData = {}
     idStr = ""
     queryString = ""
@@ -564,16 +574,14 @@ Examples: let foo=bar
         else:
           self.print(f"Error: Model {model} does not have field {key}")
           self.print(f"Check 'model {model}' and try again.")
-          self.variables['MPROV_RESULT']=None
-          return
+          return self._httpErrorExit()
       if checkargs:
         # make sure the required fields are present
         for field in self.models[model]['fields']:
           if field not in requestData and self.models[model]['fields'][field]['required']:
             self.print(f"Error: Missing field required {field} for model {model}.")
             self.print(f"Check 'model {model}' and try again.")
-            self.variables['MPROV_RESULT']=None
-            return
+            return self._httpErrorExit()
     elif method == "get" or method == "delete":
       # build query strings
       if model_args == "" :
@@ -592,22 +600,38 @@ Examples: let foo=bar
           queryString += f"{marg}&"
     
     if method == "post":
-      response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
+      try:
+        response = self.session.post(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData), headers={'Connection':'close'}, timeout=None, stream=True)
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "get":
-      response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
+      try:
+        response = self.session.get(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", timeout=None, stream=True) # TODO: Add query string and ID stuff.
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "patch":
-      response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
+      try:
+        response = self.session.patch(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}", data=json.dumps(requestData),timeout=None, stream=True) # TODO:
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     elif method == "delete":
-      response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
+      try:
+        response = self.session.delete(f"{self.mprovURL}{mEndpoint}{idStr}{queryString}",timeout=None, stream=True) # TODO
+      except requests.RequestException as e:
+        self.print(f"Error: {e}")
+        return self._httpErrorExit()
     else: 
       response = None
       self.print(f"Error: Unsupported method {method}.")
-      return
+      return self._httpErrorExit()
     
     if response.status_code < 200 or response.status_code > 299 :
       self.print(f"Error: Communications error with mPCC, code: {response.status_code}")
       self.print(f"{response.text}")
-      return
+      return self._httpErrorExit()
 
     # only assign MPROV_RESULT if we are not running in the background/parallel.  
     if not background:
@@ -616,9 +640,8 @@ Examples: let foo=bar
       except: 
         print("Error setting MPROV_RESULT")
         # self.print(f"{response.text}")
-        self.variables['MPROV_RESULT'] = None
         self.print("ERROR")
-        return
+        return self._httpErrorExit()
       if not self.quiet:
         self.print("OK")
     else:
