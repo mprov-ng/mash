@@ -47,7 +47,7 @@ Examples: bmc power on compute00[01-20,21,23]
     failed = False
     for node in nodelist:
       try:
-        response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", timeout=None, stream=True)
+        response = self.mashCmd.session.get(f"{self.mashCmd.mprovURL}/power/{action}/?hostname={node}", stream=True)
       except Exception as e:
         failed = True
         self.mashCmd.print(f"{node}: ERROR {e}")
