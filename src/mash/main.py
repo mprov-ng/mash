@@ -11,16 +11,21 @@ from mash.app import MprovShell
 def main():
   
   shell = MprovShell()
+  args = sys.argv[1:]
+  if args[:1] == ['--json']:
+    # results as JSON lines from the start, like 'output json' (#42)
+    shell.outputMode = "json"
+    args = args[1:]
   
   # Like bash and python: a script file on the command line wins, then a
   # non-TTY stdin, then the interactive shell.  '-' means stdin.
-  if len(sys.argv) >= 2 and sys.argv[1] != '-':
+  if len(args) >= 1 and args[0] != '-':
     try:
-      shell.setFile(open(sys.argv[1], 'r'))
+      shell.setFile(open(args[0], 'r'))
     except OSError as e:
-      print(f"mash: {sys.argv[1]}: {e.strerror}", file=sys.stderr)
+      print(f"mash: {args[0]}: {e.strerror}", file=sys.stderr)
       sys.exit(1)
-  elif len(sys.argv) >= 2 or not sys.stdin.isatty():
+  elif len(args) >= 1 or not sys.stdin.isatty():
     # we are getting a script on stdin.
     shell.setFile(sys.stdin)
   else:
