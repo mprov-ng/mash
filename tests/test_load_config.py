@@ -1,31 +1,13 @@
-"""Regression tests for MprovShell.load_config config shapes (MASH-013).
-
-Runs with the stdlib alone: the jinja2/requests imports of mash.app are
-stubbed for the test process when they are not installed, because
-load_config itself only needs yaml.
-"""
+"""Regression tests for MprovShell.load_config config shapes (#33)."""
 import io
 import contextlib
 import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
 
-for _name in ("jinja2", "requests"):
-    if _name not in sys.modules:
-        try:
-            __import__(_name)
-        except ImportError:
-            _m = types.ModuleType(_name)
-            if _name == "jinja2":
-                _m.Environment = object
-                _m.BaseLoader = object
-            else:
-                _m.Session = type("Session", (), {})
-            sys.modules[_name] = _m
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 
 from mash.app import MprovShell  # noqa: E402
 
