@@ -1,7 +1,4 @@
-"""mprov-ng/mash#24: bmc power joined paths onto mprovURL blindly, so
-'connect http://host:8080' (typed without a trailing slash) made every power
-command fetch 'http://host:8080power/on/...' instead of '/power/on/...'.
-connect now normalizes mprovURL to exactly one trailing slash."""
+"""mprov-ng/mash#24: bmc power URL joining (no trailing slash on mprovURL)."""
 import pytest
 
 from mash.app import MprovShell
@@ -16,8 +13,6 @@ class FakeResponse:
 
 
 class FakeSession:
-  'Records request URLs instead of talking to an mPCC.'
-
   def __init__(self):
     self.urls = []
 
@@ -31,7 +26,6 @@ def shell(monkeypatch, tmp_path):
   s = MprovShell()
   s.configfiles = [str(tmp_path / "missing.yaml")]
   s.session = FakeSession()
-  # Don't talk to a real mPCC; connect just stores what it was given.
   monkeypatch.setattr(s, "_connectToMPCC", lambda header: None)
   return s
 
@@ -43,7 +37,7 @@ def power_url(shell):
 
 def test_power_url_when_connect_omitted_the_slash(shell):
   shell.onecmd("connect http://127.0.0.1:8080 apikey KEY")
-  assert shell.mprovURL == "http://127.0.0.1:8080/"
+  assert shell.mprovURL == "http://127.0.0.1:8080"
   assert power_url(shell) == "http://127.0.0.1:8080/power/on/?hostname=node01"
 
 
@@ -54,4 +48,4 @@ def test_power_url_when_connect_included_the_slash(shell):
 
 def test_extra_trailing_slashes_are_collapsed(shell):
   shell.onecmd("connect http://127.0.0.1:8080// apikey KEY")
-  assert shell.mprovURL == "http://127.0.0.1:8080/"
+  assert shell.mprovURL == "http://127.0.0.1:8080"
