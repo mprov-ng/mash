@@ -2,8 +2,9 @@
 
 A .mash script's template text must not walk Python attributes
 (``__class__``/``__mro__``/``__globals__``) into executable internals with
-the invoking user's permissions.  A denied payload must degrade to the raw
-template string, and ordinary variable interpolation must keep working.
+the invoking user's permissions.  A denied payload must fail to render
+(renderString returns None, #57), and ordinary variable interpolation must
+keep working.
 """
 import sys
 from pathlib import Path
@@ -26,10 +27,8 @@ def test_plain_interpolation_still_works():
 
 
 def test_mro_subclasses_payload_is_blocked():
-  out = render("{{ ''.__class__.__mro__[1].__subclasses__()|length }}")
-  assert not out.strip().isdigit()
+  assert render("{{ ''.__class__.__mro__[1].__subclasses__()|length }}") is None
 
 
 def test_globals_payload_is_blocked():
-  out = render("{{ fn.__globals__ }}", {"fn": render})
-  assert "__builtins__" not in out
+  assert render("{{ fn.__globals__ }}", {"fn": render}) is None
