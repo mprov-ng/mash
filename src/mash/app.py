@@ -203,7 +203,33 @@ class MprovShell(cmd.Cmd):
     self.err(f"Error: Unrecognized command {pluginName}")
 
   def do_help(self, arg: str) :
-    result = False
+    if " " not in arg:
+      pluginName = arg
+      pluginArg = ""
+    else:
+      pluginName, pluginArg = arg.split(" ", 1)
+    # 'help <plugin> ...' goes straight to the plugin: the shell has no
+    # do_<plugin>, so asking cmd first only printed "*** No help on" (#78).
+    if pluginName != "" and not hasattr(self, f"do_{pluginName}") \
+        and importlib.util.find_spec(f"mash.plugins.{pluginName}") is not None:
+      try:
+        plugin = importlib.import_module(f"mash.plugins.{pluginName}")
+        pluginCmd = getattr(plugin, "PluginCMD")
+        if pluginCmd is not None:
+          pluginInstance = pluginCmd(self)
+          if pluginInstance is None:
+            self.err(f"Error: Unable to instantiate plugin {pluginName}")
+            return
+          # send the line off to the plugin
+          pluginInstance.onecmd("help " + pluginArg)
+        else:
+          self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
+          return
+      except Exception as e:
+        self.err(f"Error: Exception in plugin {pluginName}. {e}")
+        return
+      return
+
     result = super().do_help(arg)
     if arg == "":
       # empty arg, list our plugins
@@ -220,32 +246,6 @@ class MprovShell(cmd.Cmd):
               self.print(pluginName)
 
       self.print("\n")
-    else:
-      self.print(arg)
-      if " " not in arg:
-        pluginName = arg
-        arg=""
-      else:
-        pluginName, arg = arg.split(" ", 1)
-      pluginMod = importlib.util.find_spec(f"mash.plugins.{pluginName}")
-      if pluginMod is not None:
-        try:
-          plugin = importlib.import_module(f"mash.plugins.{pluginName}")
-          pluginCmd = getattr(plugin, "PluginCMD")
-          if pluginCmd is not None:
-            pluginInstance = pluginCmd(self)
-            if pluginInstance is None:
-              self.err(f"Error: Unable to instantiate plugin {pluginName}")
-              return
-            # send the line off to the plugin
-            pluginInstance.onecmd("help " + arg)
-          else:
-            self.err(f"Error: 'PluginCMD' class not found on plugin {pluginName}")
-            return
-        except Exception as e:
-          self.err(f"Error: Exception in plugin {pluginName}. {e}")
-          return
-        return
 
     return result
    
@@ -724,6 +724,10 @@ Usage:
 
   def _runInBackground(self, func, *args, **kwargs):
     'Run func(*args, **kwargs) in a forked child; the parent tracks it and returns.'
+    # flush first, or the child inherits what's still buffered and prints
+    # it a second time when it exits (#78).
+    self.stdout.flush()
+    sys.stderr.flush()
     ret = fork()
     if ret != 0:
       # we are parent
