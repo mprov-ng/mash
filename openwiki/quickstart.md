@@ -57,6 +57,13 @@ readable config file among `~/.mprov-mash.yaml`, `/etc/mprov/mash.yaml`, and
 in the background. Comments start with `#`; `{{ var }}` templates are rendered
 against variables set with `let`.
 
+Two shell modes help scripting: `output json` prints each result as one line
+of compact JSON, and `dryrun on` prints the changes a command would make
+instead of sending them (reads still go through). The `--json` / `--dry-run`
+CLI flags start a session in those modes. A script exits 1 if any of its
+commands failed; errors and warnings go to stderr, results to stdout. The
+[README](../README.md) is the full user reference for every command.
+
 ## Where to go next
 
 - [Architecture overview](architecture/overview.md) — startup and command-source
@@ -71,5 +78,6 @@ against variables set with `let`.
 - Plugin authoring guide — only one plugin (`src/mash/plugins/bmc.py`) exists;
   the `PluginCMD` contract is documented inline in the architecture page until
   a second plugin establishes a pattern.
-- Shell scripting edge cases (`foreach` failure semantics, `seq`, `let`
-  backticks) — documented from source only, no tests exist for them yet.
+- Shell scripting edge cases (`seq`, `let` backticks, nested `foreach`) —
+  `foreach` list/comment handling is now covered by `tests/test_foreach.py`,
+  but these remaining behaviors are documented from source/README only.

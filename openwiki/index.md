@@ -6,7 +6,7 @@ description: "Files and subdirectories in OpenWiki."
 
 # Files
 
-- [Development, Testing, and CI](development-and-testing.md) - How to install mash for development, run the pytest suite, what the GitHub Actions workflows check (including the scheduled OpenWiki update workflow and tests.yml paths-ignore for agent instruction files), the agent working rules in AGENTS.md, and the behaviors pinned by the regression tests for connect auth, config lookup, and script/stdin precedence.
+- [Development, Testing, and CI](development-and-testing.md) - How to install mash for development, the bounded runtime dependencies and the minimum-version CI job, the pytest regression suite and what it pins (connect, config, timeouts, JSON/dry-run output, scripting, plugins), and the GitHub Actions workflows for tests, lint (ruff + ShellCheck), packaging, and OpenWiki updates, plus the agent working rules in AGENTS.md.
 - [mash Quickstart](quickstart.md) - Entry point for the mash (mProv Admin Shell) wiki — what the tool is, how to install and run it, its command surface, and where to find architecture, development, and testing documentation.
 
 # Directories

@@ -1,7 +1,7 @@
 ---
 type: Playbook
 title: Development, Testing, and CI
-description: How to install mash for development, run the pytest suite, what the GitHub Actions workflows check (including the scheduled OpenWiki update workflow and tests.yml paths-ignore for agent instruction files), the agent working rules in AGENTS.md, and the behaviors pinned by the regression tests for connect auth, config lookup, and script/stdin precedence.
+description: How to install mash for development, the bounded runtime dependencies and the minimum-version CI job, the pytest regression suite and what it pins (connect, config, timeouts, JSON/dry-run output, scripting, plugins), and the GitHub Actions workflows for tests, lint (ruff + ShellCheck), packaging, and OpenWiki updates, plus the agent working rules in AGENTS.md.
 resource: .github/workflows/tests.yml
 tags: [testing, ci, packaging, pytest, github-actions]
 ---
@@ -18,6 +18,14 @@ pip install -r requirements.txt   # pyyaml, jinja2, requests
 pip install pytest
 ```
 
+`requirements.txt` bounds each dependency (`PyYAML>=5.4.1,<7`,
+`Jinja2>=2.11.3,<4`, `requests>=2.25.1,<3`); the lower bounds are Rocky 9's
+system packages so mash installs next to them (issue #45).
+[`tests/min-versions.txt`](../../tests/min-versions.txt) pins those same
+versions (plus `MarkupSafe==1.1.1`, which Jinja2 2.11 needs) and
+[`tests/test_requirements.py`](../../tests/test_requirements.py) fails if the
+two files drift apart — keep them equal when touching either.
+
 `pyproject.toml` sets `pythonpath = ["src"]` for pytest, so tests import
 `mash.*` directly from the source tree without an install step. Packaging
 metadata lives in `setup.cfg` (package `mprov_mash`, src layout) with the
@@ -28,34 +36,54 @@ consumed by `setup.py`.
 ## Test suite
 
 Run with `pytest` from the repo root. Each test file pins a regression from a
-filed issue:
+filed issue and covers one behavior of the areas explained in the
+[architecture overview](architecture/overview.md):
 
-- [`tests/test_connect.py`](../../tests/test_connect.py) — the argument forms of
-  `connect` (issue #15): apikey form, user+password form, TTY password prompt
-  (including `^D` cancelling), the non-TTY-without-password error, rejection of
-  malformed arg shapes with a usage message, and the no-arg config-file form.
-- [`tests/test_config.py`](../../tests/test_config.py) — config file lookup for
-  bare `connect` (issue #7): preference order of `~/.mprov-mash.yaml`,
-  `/etc/mprov/mash.yaml`, `/etc/mprov/jobserver.yaml`; skipping unreadable or
-  missing files with per-path reasons in the error; tolerating the job server's
-  `!include` YAML tag.
-- [`tests/test_main.py`](../../tests/test_main.py) — command source precedence
-  in `mash.main` (issue #9): a script file argument wins over piped stdin, `-`
-  means stdin, and a TTY stdin gets the interactive banner. Runs the real
-  module as a subprocess with `PYTHONPATH=src`.
+- Connect and config: `test_connect.py` (arg forms, TTY prompt, malformed
+  shapes, #15), `test_config.py` (config lookup order and per-path skip
+  reasons, #7), `test_load_config.py` (mapping-shaped configs, clean config
+  errors), `test_connect_checks.py` (refused connect, config key checks,
+  #38/#44).
+- HTTP and results: `test_timeouts_signals.py` (request timeouts, Ctrl-C /
+  SIGTERM, #29/#30), `test_query_params.py` (query encoding, malformed
+  tokens, #19/#36), `test_empty_reply.py` (empty 2xx as success, #69),
+  `test_stale_result.py` (`MPROV_RESULT` cleared on error paths, #26),
+  `test_background.py` (backgrounded children always exit).
+- Output and preview modes: `test_json_output.py` (`output json` /
+  `mash --json`, #42), `test_dry_run.py` (`dryrun on` / `mash --dry-run`,
+  #43).
+- Shell language: `test_render_sandbox.py` and `test_render_errors.py`
+  (sandboxed templates; a failed render aborts the command, #57),
+  `test_foreach.py` (list items containing `#`, quoted word lists, #48),
+  `test_pvar.py` (comma-list `pvar`), `test_no_crash.py` (malformed commands
+  don't kill the shell, #28/#35/#39).
+- Scripts: `test_main.py` (command source precedence, #9),
+  `test_script_status.py` (errors to stderr, exit 1 on failure, #31/#32).
+- Plugins: `test_plugin_dispatch.py` (args containing the plugin name,
+  #18), `test_plugin_output.py` (plugin help/errors routed through the
+  shell, #25/#55), `test_bmc.py`, `test_bmc_power.py` (per-node results,
+  #37/#41), `test_bmc_background.py` (`bmc ... &`, #37).
+- Packaging: `test_requirements.py` (requirements/min-versions consistency,
+  #45).
 
-When changing `do_connect`, `load_config`, or `main.py`'s startup logic — the
-areas explained in the [architecture overview](architecture/overview.md) — run
-these three files first; they encode the intended error messages and precedence
-rules. For shell-loop changes (templating, foreach, HTTP plumbing) there is
-currently no test coverage; exercise behavior manually or add tests.
+When changing `do_connect`, `load_config`, or `main.py`'s startup logic, run
+the connect/config files first; they encode the intended error messages and
+precedence rules. Each other area above has its own regression file — run the
+matching group when touching templating, HTTP plumbing, output modes, or the
+bmc plugin.
 
 ## CI workflows
 
 - [`../../.github/workflows/tests.yml`](../../.github/workflows/tests.yml) — pytest on pushes
   and PRs to `master`, matrixed over Python 3.9 (Rocky 9's system Python), 3.11,
-  and 3.13. Pushes/PRs that only touch `AGENTS.md` or `CLAUDE.md` are skipped
+  and 3.13, plus a `minimum` variant that installs the 3.9 matrix leg against
+  `tests/min-versions.txt` to prove the lower bounds work (#45).
+  Pushes/PRs that only touch `AGENTS.md` or `CLAUDE.md` are skipped
   via `paths-ignore`, since agent instructions can't affect the tests.
+- The same file's `lint` job (#46) runs `ruff check` (pinned version) with the
+  errors-only rule selection from `pyproject.toml` (`E9`, `F63`, `F7`, `F82` —
+  no style rules), and `shellcheck -S error` on `src/mash/mash` and
+  `gen_changelog.sh`.
 - `.github/workflows/ci.yml` — builds the Python module and Docker image on
   published releases; runs as a dry run (everything but publish) on PRs that
   touch build files.
