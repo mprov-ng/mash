@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # 3.8 is the floor (python_requires; Rocky 8's python38 module),
         # 3.9 is Rocky 9's system Python.
-        python-version: ["3.9", "3.11", "3.13"]
+        python-version: ["3.8", "3.9", "3.11", "3.13"]
         deps: ["latest"]
         include:
           # the lower bounds in requirements.txt: Rocky 9's packages (#45)
           - python-version: "3.9"
+            deps: "minimum"
+          # the same bounds on the oldest Python mash supports (#76)
+          - python-version: "3.8"
             deps: "minimum"
     steps:
       - name: Checkout
