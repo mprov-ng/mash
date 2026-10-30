@@ -1,5 +1,6 @@
-# Lower bounds are Rocky 9's system packages, so mash installs next to
-# them; tests/min-versions.txt pins them for CI (#45).
+# Lower bounds are Rocky 8's python38-* packages (Rocky 9's are the same
+# or newer), so mash installs next to them; tests/min-versions.txt pins
+# them for CI (#45, #81).
 PyYAML>=5.4.1,<7  # https://pypi.org/project/PyYAML/ - MIT
 Jinja2>=2.11.3,<4 # https://pypi.org/project/Jinja2/ - 3 Clause BSD
-requests>=2.25.1,<3
+requests>=2.22.0,<3

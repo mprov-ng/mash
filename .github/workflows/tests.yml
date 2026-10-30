@@ -24,7 +24,7 @@ jobs:
         python-version: ["3.8", "3.9", "3.11", "3.13"]
         deps: ["latest"]
         include:
-          # the lower bounds in requirements.txt: Rocky 9's packages (#45)
+          # the lower bounds in requirements.txt: Rocky 8/9 packages (#45, #81)
           - python-version: "3.9"
             deps: "minimum"
           # the same bounds on the oldest Python mash supports (#76)
