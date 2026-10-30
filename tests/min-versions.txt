@@ -1,9 +1,12 @@
-# The oldest versions mash supports: Rocky 9's python3-* packages.
+# The oldest versions mash supports: Rocky 8's python38-* packages (#81).
 # CI's "minimum" job installs these with -c; keep them equal to the lower
 # bounds in requirements.txt (tests/test_requirements.py checks).
 PyYAML==5.4.1
 Jinja2==2.11.3
-requests==2.25.1
-# Jinja2 2.11 imports markupsafe.soft_unicode, which MarkupSafe 2.1 dropped;
-# Rocky 9 has 1.1.1.
+requests==2.22.0
+# Not direct dependencies; pinned to Rocky 8's versions too.
+# Jinja2 2.11 imports markupsafe.soft_unicode, which MarkupSafe 2.1 dropped.
 MarkupSafe==1.1.1
+urllib3==1.25.7
+chardet==3.0.4
+idna==2.8
