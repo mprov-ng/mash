@@ -19,10 +19,12 @@ pip install pytest
 ```
 
 `requirements.txt` bounds each dependency (`PyYAML>=5.4.1,<7`,
-`Jinja2>=2.11.3,<4`, `requests>=2.25.1,<3`); the lower bounds are Rocky 9's
-system packages so mash installs next to them (issue #45).
-[`tests/min-versions.txt`](../../tests/min-versions.txt) pins those same
-versions (plus `MarkupSafe==1.1.1`, which Jinja2 2.11 needs) and
+`Jinja2>=2.11.3,<4`, `requests>=2.22.0,<3`); the lower bounds are Rocky 8's
+`python38-*` system packages (Rocky 9's are the same or newer) so mash installs
+next to either (issues #45, #81).
+[`tests/min-versions.txt`](../../tests/min-versions.txt) pins that exact Rocky 8
+set — including transitive `urllib3`/`chardet`/`idna` and `MarkupSafe==1.1.1`,
+which Jinja2 2.11 needs — and
 [`tests/test_requirements.py`](../../tests/test_requirements.py) fails if the
 two files drift apart — keep them equal when touching either.
 
@@ -62,7 +64,11 @@ filed issue and covers one behavior of the areas explained in the
 - Plugins: `test_plugin_dispatch.py` (args containing the plugin name,
   #18), `test_plugin_output.py` (plugin help/errors routed through the
   shell, #25/#55), `test_bmc.py`, `test_bmc_power.py` (per-node results,
-  #37/#41), `test_bmc_background.py` (`bmc ... &`, #37).
+  #37/#41), `test_bmc_background.py` (`bmc ... &`, #37),
+  `test_help_fork_output.py` (`help <plugin>` goes straight to the plugin
+  without a spurious "No help on" line or argument echo, and a backgrounded
+  fork flushes buffered stdout first so piped output isn't printed twice,
+  #78).
 - Packaging: `test_requirements.py` (requirements/min-versions consistency,
   #45).
 
@@ -75,9 +81,10 @@ bmc plugin.
 ## CI workflows
 
 - [`../../.github/workflows/tests.yml`](../../.github/workflows/tests.yml) — pytest on pushes
-  and PRs to `master`, matrixed over Python 3.9 (Rocky 9's system Python), 3.11,
-  and 3.13, plus a `minimum` variant that installs the 3.9 matrix leg against
-  `tests/min-versions.txt` to prove the lower bounds work (#45).
+  and PRs to `master`, matrixed over Python 3.8 (the supported floor, Rocky 8's
+  `python38` module), 3.9 (Rocky 9's system Python), 3.11, and 3.13, plus
+  `minimum` variants that install the 3.8 and 3.9 legs against
+  `tests/min-versions.txt` to prove the lower bounds work (#45, #76, #81).
   Pushes/PRs that only touch `AGENTS.md` or `CLAUDE.md` are skipped
   via `paths-ignore`, since agent instructions can't affect the tests.
 - The same file's `lint` job (#46) runs `ruff check` (pinned version) with the

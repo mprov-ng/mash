@@ -125,7 +125,9 @@ All data commands funnel through `_sendHttpRequest(method, arg, ...)`:
   (`self.queryKeys`: `detail`, `search`, `hostname`, `network`, `status`,
   `powerstate`, ...) still gets sent but produces a warning, because older
   mPCCs ignore unknown filters and return every row.
-- A trailing `&` forks the process so the request runs in the background; the
+- A trailing `&` forks the process so the request runs in the background;
+  `_runInBackground` flushes stdout/stderr before `fork()` so a child inheriting
+  block-buffered output can't reprint it on exit (issue #78). The
   parent tracks the pid in `self.processes` and scripts wait for them before
   exiting (`_waitForBackground`). Backgrounded requests never set
   `MPROV_RESULT`, and a nonzero child exit marks the script as failed.
@@ -150,8 +152,10 @@ command lines print an error instead of crashing the shell (issue #28).
 up `mash.plugins.<name>` with `importlib`, instantiates the module's
 `PluginCMD` class (a `cmd.Cmd` subclass receiving the shell instance), and
 routes the rest of the line to it via `onecmd`. `help` with no arguments lists
-the plugin files found in `src/mash/plugins/`, and `help <plugin>` delegates to
-the plugin's own help.
+the plugin files found in `src/mash/plugins/`, and `help <plugin> [cmd ...]`
+detects the plugin by module name and routes straight to the plugin's own help
+without consulting the shell's `do_*` methods first — the old ordering printed a
+spurious `*** No help on` line before the plugin's help (issue #78).
 
 The one shipped plugin, [`src/mash/plugins/bmc.py`](../../src/mash/plugins/bmc.py),
 implements `bmc power <action> <node_spec>` with actions `on`, `off`, `cycle`,
