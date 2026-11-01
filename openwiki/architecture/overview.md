@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: mash Architecture Overview
-description: How mash starts, chooses its command source, connects to the mProv Control Center, resolves config files, executes CRUD commands over HTTP, and dispatches unknown commands to plugins.
+description: How mash starts, chooses its command source, connects to the mProv Control Center (including the mProv-Version warning-only version handshake), resolves config files, executes CRUD commands over HTTP, and dispatches unknown commands to plugins.
 resource: src/mash/app.py
 tags: [architecture, shell, mprov, plugins, http]
 ---
@@ -109,6 +109,20 @@ from `/datamodel/?model=<name>` into `self.models`. These models drive argument
 validation for later CRUD commands. A 401/403 from the base URL — the mPCC's
 `/` requires login — errors with a hint to check the API key or credentials
 (issue #38).
+
+### Version handshake (mash #83)
+
+Every mPCC request carries an `mProv-Version` header with mash's own
+`major.minor`, taken from the installed `mprov_mash` package metadata and
+falling back to the `VERSION` file for an editable/unbuilt checkout
+(`_mashApiVersion`). `_checkMPCCVersion` compares the `mProv-Version` header on
+the mPCC's reply against mash's version and, on a mismatch, prints a warning —
+it never fails the request. The warning fires at most once per connection
+(`_versionWarned`), and the guard resets on each `connect` so re-pointing at a
+different site can warn again. This is intentionally warn-only because one mash
+may be pointed at several sites running different mPCC versions mid-rollout of
+the mPCC/jobserver/mash/mprov_scripts version-locking design
+(mprov_control_center #452).
 
 ## CRUD and HTTP
 
