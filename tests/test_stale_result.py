@@ -19,6 +19,7 @@ class FakeResponse:
     self._payload = payload
     self._bad_json = bad_json
     self.text = "server says no"
+    self.headers = {}
 
   def json(self):
     if self._bad_json:

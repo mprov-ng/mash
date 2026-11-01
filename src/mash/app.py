@@ -11,12 +11,28 @@ import shlex
 from urllib.parse import quote
 import yaml
 import importlib
+import importlib.metadata
 from pathlib import Path
 from urllib3.util.retry import Retry
 
 # (connect, read) seconds for every call to the mPCC; 'timeout' in the
 # config's 'global' section overrides the read part (#29).
 DEFAULT_TIMEOUT = (10, 120)
+
+# mash's own major.minor, sent as the mProv-Version request header and
+# compared against the mPCC's reply (mash#83, mprov_control_center#452).
+# Falls back to the VERSION file for an editable/unbuilt checkout, where
+# package metadata isn't registered.
+def _mashApiVersion():
+  try:
+    full = importlib.metadata.version("mprov_mash")
+  except importlib.metadata.PackageNotFoundError:
+    try:
+      full = (Path(__file__).resolve().parents[2] / "VERSION").read_text().strip()
+    except OSError:
+      return "0.0"
+  parts = full.split(".")
+  return ".".join(parts[:2]) if len(parts) >= 2 else full
 
 
 class TimeoutSession(requests.Session):
@@ -44,6 +60,8 @@ class MprovShell(cmd.Cmd):
   session = TimeoutSession()
   mprovURL = ""
   apikey = ""
+  mashVersion = _mashApiVersion()
+  _versionWarned = False
   models={}
   processes = []
   quiet = False
@@ -680,7 +698,11 @@ Usage:
       'Content-Type': 'application/json',
       'Authorization': authHeader,
       'Connection': 'close',
+      'mProv-Version': self.mashVersion,
     })
+    # a new connection may be to a different site, so warn again if its
+    # mPCC version differs (mash#83).
+    self._versionWarned = False
     try:
       # retry failed connections, but not a request that timed out waiting
       # for its reply, or a hung mPCC holds every GET for 21 timeouts (#29).
@@ -691,6 +713,7 @@ Usage:
     except Exception:
       self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}")
       return
+    self._checkMPCCVersion(response)
     if response.status_code==200:
       # we connected, get the supported data models.
       self._getMPCCModels()
@@ -702,6 +725,20 @@ Usage:
       body = response.text.strip()
       if body:
         self.err(body[:500])
+  def _checkMPCCVersion(self, response):
+    """Warn (not fail) if the mPCC's reported version differs from mash's (mash#83).
+
+    mash may be pointed at several sites running different mPCC versions
+    mid-rollout, so this is intentionally warn-only and once per connection,
+    not a hard fail or a warning on every single request.
+    """
+    if self._versionWarned:
+      return
+    mpccVersion = response.headers.get('mProv-Version')
+    if mpccVersion and mpccVersion != self.mashVersion:
+      self.warn(f"Warning: mPCC {self.mprovURL} reports API version {mpccVersion}, mash is {self.mashVersion} - some commands may behave differently.")
+      self._versionWarned = True
+
   def _parseArgType(self, arg):
     if arg == None or arg == "''" or arg == "\"\"" or arg=="":
       return None
@@ -862,7 +899,8 @@ Usage:
       response = None
       self.err(f"Error: Unsupported method {method}.")
       return self._httpErrorExit()
-    
+
+    self._checkMPCCVersion(response)
     if response.status_code < 200 or response.status_code > 299 :
       self.err(f"Error: Communications error with mPCC, code: {response.status_code}")
       self.err(f"{response.text}")
