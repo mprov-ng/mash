@@ -128,3 +128,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 src/mprov-cmd/test.mprov
+
+# Per-PR git worktrees (see mprov-coordinator ground rules)
+.worktree/
