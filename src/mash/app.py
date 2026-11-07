@@ -288,7 +288,6 @@ Usage:
     without a reply.  Ctrl-C stops a command that is waiting.
 
     '''
-    authHeader = ""
     args = arg.split()
     if len(args) == 0:
       # we are reading from a yaml file.
@@ -296,7 +295,7 @@ Usage:
         return
       if not self._checkConfigKeys():
         return
-      authHeader = f"Api-Key {self.config_data['global']['apikey']}"
+      scheme, credential = 'apikey', self.config_data['global']['apikey']
       self.mprovURL = self.config_data['global']['mprovURL']
       if 'timeout' in self.config_data['global']:
         try:
@@ -311,7 +310,7 @@ Usage:
     elif len(args) == 3 and args[1] == 'apikey':
       # we are using an API key
       self.mprovURL = args[0]
-      authHeader = f"Api-Key {args[2]}"
+      scheme, credential = 'apikey', args[2]
 
     elif args[1:2] == ['user'] and (len(args) == 3 or (len(args) == 5 and args[3] == 'password')):
       # We are using plain text auth
@@ -328,8 +327,7 @@ Usage:
         self.err("connect: no password given, and stdin isn't a terminal to prompt on.")
         return
       self.mprovURL = args[0]
-      encAuthStr = base64.b64encode(f"{args[2]}:{password}".encode()).decode()
-      authHeader = f"Basic {encAuthStr}"
+      scheme, credential = 'user', (args[2], password)
 
     else:
       self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]]")
@@ -338,7 +336,20 @@ Usage:
     # store it without a trailing slash; callers add the slash they need.
     if self.mprovURL:
       self.mprovURL = self.mprovURL.rstrip("/")
-    self._connectToMPCC(authHeader)
+    self._connectToMPCC(self._authHeader(scheme, credential))
+
+  def _authHeader(self, scheme, credential):
+    '''The Authorization header for one of connect's ways to log in.
+
+    Every way connect authenticates (a config file, 'apikey', 'user') ends
+    up here, so a new one (a per-user token, mprov_control_center#381) is
+    one more branch.'''
+    if scheme == 'apikey':
+      return f"Api-Key {credential}"
+    if scheme == 'user':
+      user, password = credential
+      return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    raise ValueError(f"unknown auth scheme {scheme!r}")
 
 
   def _waitForBackground(self):
