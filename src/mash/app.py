@@ -19,6 +19,14 @@ from urllib3.util.retry import Retry
 # config's 'global' section overrides the read part (#29).
 DEFAULT_TIMEOUT = (10, 120)
 
+# The OS CA bundles update-ca-trust / update-ca-certificates write.  requests
+# from PyPI trusts only certifi's bundle, so an mPCC whose certificate is from
+# a site CA added to the OS failed to verify (as in mprov_jobserver#102).
+OS_CA_BUNDLES = (
+  '/etc/pki/tls/certs/ca-bundle.crt',     # RHEL, Rocky, Fedora
+  '/etc/ssl/certs/ca-certificates.crt',   # Debian, Ubuntu, Alpine
+)
+
 # mash's own major.minor, sent as the mProv-Version request header and
 # compared against the mPCC's reply (mash#83, mprov_control_center#452).
 # Falls back to the VERSION file for an editable/unbuilt checkout, where
@@ -36,12 +44,20 @@ def _mashApiVersion():
 
 
 class TimeoutSession(requests.Session):
-  'A Session whose requests time out unless the caller passes its own timeout.'
+  '''A Session whose requests time out unless the caller passes its own timeout.
+
+  caBundle, when set, is the CA file to verify the mPCC's certificate with
+  (mash#86).  It's passed on every request, so it wins over
+  REQUESTS_CA_BUNDLE, which requests would otherwise prefer to
+  Session.verify.'''
   timeout = DEFAULT_TIMEOUT
+  caBundle = None
 
   def request(self, method, url, **kwargs):
     if kwargs.get('timeout') is None:
       kwargs['timeout'] = self.timeout
+    if kwargs.get('verify') is None and self.caBundle:
+      kwargs['verify'] = self.caBundle
     return super().request(method, url, **kwargs)
 
 
@@ -67,7 +83,7 @@ class MprovShell(cmd.Cmd):
   quiet = False
   config_data={}
   failed = False # set by err(); makes a script exit 1
-  configKeys = ('mprovURL', 'apikey', 'timeout') # the 'global' keys mash reads
+  configKeys = ('mprovURL', 'apikey', 'timeout', 'caBundle') # the 'global' keys mash reads
   outputMode = "text" # 'output json' prints results as JSON lines (#42)
   dryRun = False # 'dryrun on' shows changes instead of sending them (#43)
   inForLoop = False
@@ -278,17 +294,29 @@ Usage:
     connect <mprov_url> user <user> password <password> - connects with a username and password.
 
     connect <mprov_url> user <user> - prompts for the password when run from a terminal.
+
+    Add 'ca <file>' to any of these to verify an https mPCC's certificate
+    against that CA file, e.g. 'connect https://mpcc apikey <key> ca /etc/mprov/mpcc-ca.pem'.
     
     connect - With no arguments, mash reads the mprovURL and apikey from the 'global'
     section of the first readable file of: ~/.mprov-mash.yaml, /etc/mprov/mash.yaml,
     /etc/mprov/jobserver.yaml (the job server's own config).  An optional 'timeout'
-    there sets how many seconds to wait for a reply (default 120).
+    there sets how many seconds to wait for a reply (default 120), and an optional
+    'caBundle' the CA file, as 'ca' does.
+
+    Without a CA file, mash trusts the OS's CA bundle (where update-ca-trust
+    puts a site's CA), or requests' own bundle if the OS has none.
 
     Every request gives up after 10 seconds without a connection or the timeout
     without a reply.  Ctrl-C stops a command that is waiting.
 
     '''
     args = arg.split()
+    caBundle = None
+    if len(args) > 2 and args[-2] == 'ca':
+      # 'ca <file>' can follow any of the forms below (mash#86)
+      caBundle = args[-1]
+      args = args[:-2]
     if len(args) == 0:
       # we are reading from a yaml file.
       if not self.load_config():
@@ -306,6 +334,7 @@ Usage:
           self.err(f"{self.configfile}: 'timeout' must be a number of seconds greater than 0")
           return
         self.session.timeout = (DEFAULT_TIMEOUT[0], readTimeout)
+      caBundle = self.config_data['global'].get('caBundle')
 
     elif len(args) == 3 and args[1] == 'apikey':
       # we are using an API key
@@ -330,13 +359,39 @@ Usage:
       scheme, credential = 'user', (args[2], password)
 
     else:
-      self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]]")
+      self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]] [ca <file>]")
       return
     # Everything that talks to the mPCC concatenates paths onto mprovURL, so
     # store it without a trailing slash; callers add the slash they need.
     if self.mprovURL:
       self.mprovURL = self.mprovURL.rstrip("/")
+    ca = self._caBundle(caBundle)
+    if ca is False:
+      return
+    self.session.caBundle = ca
     self._connectToMPCC(self._authHeader(scheme, credential))
+
+  def _caBundle(self, configured):
+    '''The CA file to verify the mPCC's certificate with (mash#86).
+
+    The one given ('ca' or caBundle) if set; else None if REQUESTS_CA_BUNDLE
+    or CURL_CA_BUNDLE is set, so requests uses that as before; else the OS
+    bundle; else None (requests' default, certifi).  The OS bundle holds
+    the public CAs too, so a publicly trusted mPCC still verifies.  A given
+    file that doesn't exist is an error (False): better than quietly
+    trusting other CAs.'''
+    if configured:
+      path = os.path.expanduser(str(configured))
+      if not os.path.isfile(path):
+        self.err(f"connect: CA file {configured} doesn't exist")
+        return False
+      return path
+    if os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('CURL_CA_BUNDLE'):
+      return None
+    for path in OS_CA_BUNDLES:
+      if os.path.isfile(path):
+        return path
+    return None
 
   def _authHeader(self, scheme, credential):
     '''The Authorization header for one of connect's ways to log in.
@@ -721,6 +776,11 @@ Usage:
       self.session.mount('https://', adapter)
       self.session.mount('http://', adapter)
       response = self.session.get(self.mprovURL, stream=True)
+    except requests.exceptions.SSLError as e:
+      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}: {e}")
+      self.err("If the mPCC's certificate is from a site or self-signed CA, give connect "
+               "that CA's file with 'ca <file>', or set 'caBundle' in the config.")
+      return
     except Exception:
       self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}")
       return
