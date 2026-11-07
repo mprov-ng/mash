@@ -19,6 +19,7 @@ connect                                    # read the mprovURL and apikey from a
 connect https://mpcc.example.com apikey <key>
 connect https://mpcc.example.com user admin password <password>
 connect https://mpcc.example.com user admin  # prompts for the password (terminal only)
+connect https://mpcc.example.com apikey <key> ca /etc/mprov/mpcc-ca.pem
 ```
 
 `connect` with no arguments reads the first readable file in this list:
@@ -36,6 +37,7 @@ global:
   mprovURL: https://mpcc.example.com
   apikey: <api-key>
   timeout: 300   # optional: seconds to wait for a reply (default 120)
+  caBundle: /etc/mprov/mpcc-ca.pem   # optional: the CA file for an https mPCC
 ```
 
 `mprovURL` and `apikey` must both be set. In mash's own files an unknown key
@@ -48,6 +50,23 @@ retried. Press Ctrl-C to stop a command that is waiting.
 
 If the mPCC refuses the login (401/403), `connect` says so and suggests
 checking the API key or the user and password.
+
+### HTTPS and the mPCC's CA
+
+For an `https` mPCC, mash checks the mPCC's certificate against, in order:
+
+1. the CA file given with `ca <file>` on `connect`, or `caBundle` in the config file;
+2. `REQUESTS_CA_BUNDLE` or `CURL_CA_BUNDLE`, if either is set in the environment;
+3. the OS's CA bundle (`/etc/pki/tls/certs/ca-bundle.crt` or
+   `/etc/ssl/certs/ca-certificates.crt`), which holds the public CAs and any
+   site CA added with `update-ca-trust` or `update-ca-certificates`;
+4. the CAs that come with Python `requests` (certifi), if the OS has no bundle.
+
+So an mPCC whose certificate is from a site or self-signed CA needs that CA's
+file, either added to the OS bundle or given to mash. A `ca` or `caBundle`
+file that doesn't exist is an error. On a job server, mash also reads the job
+server's own `caBundle` from `jobserver.yaml`. If the certificate doesn't
+verify, `connect` shows the reason and points to `ca` and `caBundle`.
 
 ## Models
 
