@@ -106,3 +106,16 @@ def test_no_arguments_still_reads_the_config(shell, capsys):
   shell.onecmd("connect")
   assert shell.connected == []
   assert "Unable to find a readable config file." in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("scheme, credential, header", [
+  ("apikey", "abc123", "Api-Key abc123"),
+  ("user", ("alice", "s3cret"), basic("alice", "s3cret")),
+])
+def test_auth_header(scheme, credential, header):
+  assert MprovShell()._authHeader(scheme, credential) == header
+
+
+def test_auth_header_unknown_scheme():
+  with pytest.raises(ValueError):
+    MprovShell()._authHeader("token", "abc123")
