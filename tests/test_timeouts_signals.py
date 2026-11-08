@@ -77,7 +77,7 @@ def env(home):
 @pytest.fixture
 def home(tmp_path, mpcc):
   def write(timeout=None):
-    lines = ["global:", f"  mprovURL: http://127.0.0.1:{mpcc.server_port}/", "  apikey: abc"]
+    lines = ["global:", f"  mprovURL: http://127.0.0.1:{mpcc.server_port}/", "  token: abc"]
     if timeout is not None:
       lines.append(f"  timeout: {timeout}")
     (tmp_path / ".mprov-mash.yaml").write_text("\n".join(lines) + "\n")

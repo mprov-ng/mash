@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mash.app import MprovShell  # noqa: E402
 
-GLOBAL_FORMAT = "apikey: <api-key>"
+GLOBAL_FORMAT = "token: <token>"
 
 
 class LoadConfigShapes(unittest.TestCase):

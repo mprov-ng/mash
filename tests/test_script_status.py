@@ -55,7 +55,7 @@ def home(tmp_path):
   server.daemon_threads = True
   threading.Thread(target=server.serve_forever, daemon=True).start()
   (tmp_path / ".mprov-mash.yaml").write_text(
-    f"global:\n  mprovURL: http://127.0.0.1:{server.server_port}/\n  apikey: abc\n")
+    f"global:\n  mprovURL: http://127.0.0.1:{server.server_port}/\n  token: abc\n")
   yield tmp_path
   server.shutdown()
   server.server_close()
