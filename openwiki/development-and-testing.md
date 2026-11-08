@@ -42,10 +42,13 @@ filed issue and covers one behavior of the areas explained in the
 [architecture overview](architecture/overview.md):
 
 - Connect and config: `test_connect.py` (arg forms, TTY prompt, malformed
-  shapes, #15), `test_config.py` (config lookup order and per-path skip
-  reasons, #7), `test_load_config.py` (mapping-shaped configs, clean config
-  errors), `test_connect_checks.py` (refused connect, config key checks,
-  #38/#44).
+  shapes, #15), `test_tokens.py` (per-user API tokens: `token` auth,
+  `save-token` via a stubbed mPCC `/tokens/` endpoint, config `token:` key,
+  #86), `test_ca_bundle.py` (`connect ... ca <file>` / `caBundle` verified
+  against a test-only CA in `tests/certs/`, #86), `test_config.py` (config
+  lookup order and per-path skip reasons, #7), `test_load_config.py`
+  (mapping-shaped configs, clean config errors), `test_connect_checks.py`
+  (refused connect, config key checks, #38/#44).
 - HTTP and results: `test_timeouts_signals.py` (request timeouts, Ctrl-C /
   SIGTERM, #29/#30), `test_query_params.py` (query encoding, malformed
   tokens, #19/#36), `test_empty_reply.py` (empty 2xx as success, #69),

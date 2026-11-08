@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: mash Architecture Overview
-description: How mash starts, chooses its command source, connects to the mProv Control Center (including the mProv-Version warning-only version handshake), resolves config files, executes CRUD commands over HTTP, and dispatches unknown commands to plugins.
+description: How mash starts, chooses its command source, connects to the mProv Control Center (per-user API tokens, the shared API key, CA-bundle verification, and the mProv-Version warning-only handshake), resolves config files, executes CRUD commands over HTTP, and dispatches unknown commands to plugins.
 resource: src/mash/app.py
 tags: [architecture, shell, mprov, plugins, http]
 ---
@@ -84,31 +84,62 @@ switches (`output`, `dryrun`; see
 
 ## Connecting and config lookup
 
-`do_connect` supports three auth forms plus a config-file form; malformed
-argument shapes print a usage error instead of raising (issue #15):
+`do_connect` supports several auth forms plus a config-file form; malformed
+argument shapes print a usage error instead of raising (issue #15). Every
+form ends up in one place, `_authHeader`, which builds the `Authorization`
+header:
 
-- `connect <url> apikey <key>` → `Api-Key` header
+- `connect <url> token <token>` → `Token` header (per-user API tokens,
+  mPCC 0.7 or later, issue #86)
 - `connect <url> user <user> password <pw>` or `connect <url> user <user>` →
   HTTP Basic auth; the no-password form prompts with `getpass` only when stdin
   is a TTY, and errors clearly otherwise
-- `connect` (no args) → reads `mprovURL` and `apikey` from the `global` section
-  of the first readable config file among, in order:
-  `~/.mprov-mash.yaml`, `/etc/mprov/mash.yaml`, `/etc/mprov/jobserver.yaml`
-  (the job server's own config, added for issue #4). When none is readable, the
-  error lists each path tried and why it was skipped (issue #7). Config parsing
-  accepts the job server's multi-document list shape and stubs its `!include`
-  tag. `_checkConfigKeys` then requires `mprovURL` and `apikey` and warns on
-  unknown keys/sections in mash's own files (suggesting the key you probably
-  meant), but leaves `jobserver.yaml` keys unchecked since the job server has
-  its own (issue #44). `mprovURL` is stored without a trailing slash; callers
+- `connect <url> user <user> [password <pw>] save-token [<name>]` → makes an
+  API token for the user with `POST /tokens/` (named `mash@<host>` by
+  default), then connects with it. `_saveToken` writes the token to
+  `~/.mprov-mash.yaml` only when that file doesn't exist yet (opened with
+  `O_EXCL`, mode `0600`); otherwise it prints the token once for the user to
+  add by hand — mash never rewrites an existing config (issue #86).
+- `connect <url> apikey <key>` → `Api-Key` header, the shared API key. It is
+  being replaced by per-user tokens; using it prints a warning because the
+  mPCC refuses it by default from 0.7 (issue #86).
+- `connect` (no args) → reads `mprovURL` and one of `token`/`apikey` from the
+  `global` section of the first readable config file among, in order:
+  `~/.mprov-mash.yaml`, `/etc/mprov/mash.yaml`. When none is readable, the
+  error lists each path tried and why it was skipped (issue #7), and prints
+  an extra hint if `/etc/mprov/jobserver.yaml` exists — mash read the job
+  server's shared key from there before 0.7 and no longer does (issue #86).
+  Config parsing still accepts the multi-document list shape and stubs the
+  job server's `!include` tag. `_checkConfigKeys` requires `mprovURL` and
+  exactly one of `token`/`apikey`, and warns on unknown keys/sections
+  (suggesting the key you probably meant) in every config file it reads —
+  the old `jobserver.yaml` exemption went away with the file itself
+  (issues #44, #86). `mprovURL` is stored without a trailing slash; callers
   add the slash they need (issue #24).
 
-On a successful connection, `_connectToMPCC` GETs the base URL; on 200 it calls
-`_getMPCCModels`, which pulls `/datamodel/` and then each model's structure
-from `/datamodel/?model=<name>` into `self.models`. These models drive argument
-validation for later CRUD commands. A 401/403 from the base URL — the mPCC's
-`/` requires login — errors with a hint to check the API key or credentials
-(issue #38).
+Any connect form accepts a trailing `ca <file>` to verify an https mPCC
+against that CA, and the config file's `global` section takes an optional
+`caBundle` key. `_caBundle` resolves the CA in order: the given file (a
+missing file is an error rather than silently trusting other CAs), else
+`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` if set (returning `None` so `requests`
+uses them), else the OS CA bundle (`/etc/pki/tls/certs/ca-bundle.crt` on
+RHEL/Rocky/Fedora, `/etc/ssl/certs/ca-certificates.crt` on Debian-family —
+where `update-ca-trust` puts a site CA), else `None` for requests' own
+certifi bundle. The result is stored on `TimeoutSession.caBundle`, which
+passes `verify=` on every request so it wins over `REQUESTS_CA_BUNDLE`;
+without it, PyPI `requests` trusted only certifi and a site-CA mPCC failed
+to verify (issue #86). An SSL failure is reported by `_reportUnreachable`,
+which points at `ca`/`caBundle`.
+
+On a successful connection, `_connectToMPCC` GETs the base URL; on 200 it
+calls `_getMPCCModels`, which pulls `/datamodel/` and then each model's
+structure from `/datamodel/?model=<name>` into `self.models`. These models
+drive argument validation for later CRUD commands. Because the mPCC's `/`
+answers without a login from 0.7, a token connection is additionally checked
+with `_checkToken` (`GET /tokens/`), so a revoked, expired, or
+version-mismatched token fails at `connect` with the mPCC's reason instead of
+on the first command (issue #86). A 401/403 still errors with a hint to check
+the token, API key, or credentials (issue #38).
 
 ### Version handshake (mash #83)
 

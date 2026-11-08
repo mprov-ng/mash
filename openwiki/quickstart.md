@@ -43,7 +43,7 @@ activated is the usual case).
 ## First commands
 
 ```text
-<mProv> # connect https://mpcc.example/ apikey <key>
+<mProv> # connect https://mpcc.example/ token <token>
 <mProv> # models                  # list data models fetched from the mPCC
 <mProv> # retrieve node id=1      # GET; result lands in MPROV_RESULT
 <mProv> # pvar MPROV_RESULT
@@ -51,11 +51,12 @@ activated is the usual case).
 <mProv> # bmc power on compute00[01-05]   # plugin command
 ```
 
-`connect` with no arguments reads `mprovURL` and `apikey` from the first
-readable config file among `~/.mprov-mash.yaml`, `/etc/mprov/mash.yaml`, and
-`/etc/mprov/jobserver.yaml`. A trailing `&` on a data command runs the request
-in the background. Comments start with `#`; `{{ var }}` templates are rendered
-against variables set with `let`.
+`connect` with no arguments reads `mprovURL` and `token` (or the legacy
+shared `apikey`) from the first readable config file among
+`~/.mprov-mash.yaml` and `/etc/mprov/mash.yaml`; make a token with
+`connect <url> user <you> save-token`. A trailing `&` on a data command runs
+the request in the background. Comments start with `#`; `{{ var }}` templates
+are rendered against variables set with `let`.
 
 Two shell modes help scripting: `output json` prints each result as one line
 of compact JSON, and `dryrun on` prints the changes a command would make
