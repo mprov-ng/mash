@@ -88,7 +88,6 @@ def test_no_password_without_a_tty_is_an_error(shell, monkeypatch, capsys):
   "http://mpcc/ user alice password",
   "http://mpcc/ user alice pass s3cret",
   "http://mpcc/ user alice password s3cret extra",
-  "http://mpcc/ token abc123",
 ])
 def test_malformed_commands_print_usage_and_do_not_connect(shell, args, capsys):
   shell.onecmd(f"connect {args}")
@@ -111,6 +110,7 @@ def test_no_arguments_still_reads_the_config(shell, capsys):
 @pytest.mark.parametrize("scheme, credential, header", [
   ("apikey", "abc123", "Api-Key abc123"),
   ("user", ("alice", "s3cret"), basic("alice", "s3cret")),
+  ("token", "abc.123", "Token abc.123"),
 ])
 def test_auth_header(scheme, credential, header):
   assert MprovShell()._authHeader(scheme, credential) == header
@@ -118,4 +118,4 @@ def test_auth_header(scheme, credential, header):
 
 def test_auth_header_unknown_scheme():
   with pytest.raises(ValueError):
-    MprovShell()._authHeader("token", "abc123")
+    MprovShell()._authHeader("bogus", "abc123")

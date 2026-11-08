@@ -4,9 +4,9 @@ Before, a non-200 answer to connect (a wrong API key or password: the
 mPCC's / needs a login) printed nothing and loaded no models, and a
 typo'd config key ('apiKey', 'mprovurl') connected with an empty
 Authorization header.  Now connect reports the status, a missing
-mprovURL or apikey stops it, and an unknown key in mash's own config
-gets a warning.  The job server's jobserver.yaml, which mash falls back
-to, has keys of its own, so it isn't checked for unknown keys.
+mprovURL or credential stops it, and an unknown key gets a warning.
+A config sets one of 'token' and 'apikey', and 'apikey' warns that it's
+going away (mash#86).
 """
 import http.server
 import os
@@ -41,7 +41,7 @@ def test_refused_connect_is_reported_and_fails_the_script(tmp_path):
   threading.Thread(target=server.serve_forever, daemon=True).start()
   try:
     (tmp_path / ".mprov-mash.yaml").write_text(
-      f"global:\n  mprovURL: http://127.0.0.1:{server.server_port}/\n  apikey: wrong\n")
+      f"global:\n  mprovURL: http://127.0.0.1:{server.server_port}/\n  token: wrong\n")
     e = dict(os.environ)
     e["PYTHONPATH"] = str(SRC) + os.pathsep + e.get("PYTHONPATH", "")
     e["HOME"] = str(tmp_path)
@@ -52,7 +52,7 @@ def test_refused_connect_is_reported_and_fails_the_script(tmp_path):
     server.server_close()
   assert r.returncode == 1
   assert "Unable to connect to mPCC" in r.stderr
-  assert "code: 403; check the API key or user and password" in r.stderr
+  assert "code: 403; check the token, API key, or user and password" in r.stderr
   assert "Authentication credentials were not provided." in r.stderr
   assert r.stdout == ""
 
@@ -74,8 +74,8 @@ def connect(tmp_path, monkeypatch, capsys):
 
 
 def test_good_config_connects_quietly(connect):
-  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  apikey: k\n  timeout: 30\n")
-  assert sent == ["Api-Key k"]
+  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  token: k\n  timeout: 30\n")
+  assert sent == ["Token k"]
   assert err == ""
   assert not s.failed
 
@@ -84,7 +84,7 @@ def test_typo_in_a_key_warns_and_the_missing_key_stops_connect(connect):
   sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  apiKey: k\n")
   assert sent == []
   assert "unknown key 'apiKey' in 'global'; did you mean 'apikey'?" in err
-  assert "'apikey' isn't set in 'global'" in err
+  assert "neither 'token' nor 'apikey' is set in 'global'" in err
   assert s.failed
 
 
@@ -99,18 +99,23 @@ def test_missing_or_empty_url_stops_connect(connect, conf):
 
 
 def test_unknown_key_and_section_warn_but_connect(connect):
-  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  apikey: k\n  colour: blue\nextra:\n  a: 1\n")
-  assert sent == ["Api-Key k"]
+  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  token: k\n  colour: blue\nextra:\n  a: 1\n")
+  assert sent == ["Token k"]
   assert "unknown key 'colour' in 'global'" in err
   assert "did you mean" not in err
   assert "unknown section 'extra'" in err
   assert not s.failed
 
 
-def test_jobserver_yaml_keys_are_not_warned_about(connect):
-  sent, err, s = connect(
-    "- global:\n    mprovURL: http://mpcc/\n    apikey: k\n    heartbeatInterval: 10\n"
-    "    myaddress: ''\n    jobmodules: []\n- dnsmasq:\n    x: 1\n",
-    name="jobserver.yaml")
+def test_apikey_still_connects_but_warns(connect):
+  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  apikey: k\n")
   assert sent == ["Api-Key k"]
-  assert err == ""
+  assert "shared API key is being replaced by per-user tokens" in err
+  assert not s.failed
+
+
+def test_token_and_apikey_together_stop_connect(connect):
+  sent, err, s = connect("global:\n  mprovURL: http://mpcc/\n  token: t\n  apikey: k\n")
+  assert sent == []
+  assert "set only one of 'token' and 'apikey'" in err
+  assert s.failed

@@ -40,7 +40,7 @@ def make_handler(seen):
         return self._reply(200, {"datamodels": ["systems"]})
       if self.path.startswith("/datamodel/?model="):
         return self._reply(200, MODEL)
-      if self.path != "/":  # connect's check
+      if self.path not in ("/", "/tokens/"):  # connect's checks
         seen.append(("GET", self.path))
       if self.path.startswith("/systems/"):
         return self._reply(200, SYSTEMS)
@@ -69,7 +69,7 @@ def mpcc(tmp_path):
   server.daemon_threads = True
   threading.Thread(target=server.serve_forever, daemon=True).start()
   url = f"http://127.0.0.1:{server.server_port}"
-  (tmp_path / ".mprov-mash.yaml").write_text(f"global:\n  mprovURL: {url}/\n  apikey: k\n")
+  (tmp_path / ".mprov-mash.yaml").write_text(f"global:\n  mprovURL: {url}/\n  token: k\n")
   yield tmp_path, url, seen
   server.shutdown()
   server.server_close()

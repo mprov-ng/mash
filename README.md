@@ -15,41 +15,67 @@ Every session starts with `connect`. It checks that the mPCC answers, then
 loads the mPCC's data models (see [Models](#models)).
 
 ```
-connect                                    # read the mprovURL and apikey from a config file
-connect https://mpcc.example.com apikey <key>
+connect                                    # read the mprovURL and token from a config file
+connect https://mpcc.example.com token <token>
 connect https://mpcc.example.com user admin password <password>
 connect https://mpcc.example.com user admin  # prompts for the password (terminal only)
-connect https://mpcc.example.com apikey <key> ca /etc/mprov/mpcc-ca.pem
+connect https://mpcc.example.com user admin save-token   # make yourself a token (below)
+connect https://mpcc.example.com token <token> ca /etc/mprov/mpcc-ca.pem
+connect https://mpcc.example.com apikey <key>   # the shared API key, being replaced
 ```
 
 `connect` with no arguments reads the first readable file in this list:
 
 1. `~/.mprov-mash.yaml`
 2. `/etc/mprov/mash.yaml`
-3. `/etc/mprov/jobserver.yaml` (the job server's own config, so mash works on a job server with no extra setup)
 
 If none of them can be read, `connect` lists each file it tried and why it skipped it.
+Before 0.7, mash also read the job server's `/etc/mprov/jobserver.yaml` and
+its shared API key. It doesn't any more; make yourself a token instead.
 
 The file needs a `global` section:
 
 ```yaml
 global:
   mprovURL: https://mpcc.example.com
-  apikey: <api-key>
+  token: <token>
   timeout: 300   # optional: seconds to wait for a reply (default 120)
   caBundle: /etc/mprov/mpcc-ca.pem   # optional: the CA file for an https mPCC
 ```
 
-`mprovURL` and `apikey` must both be set. In mash's own files an unknown key
-or section gets a warning, which names the key you probably meant. Keys in
-`jobserver.yaml` aren't checked, because the job server has keys of its own.
+`mprovURL` must be set, and one of `token` and `apikey`. An unknown key or
+section gets a warning, which names the key you probably meant.
 
 Every request to the mPCC gives up after 10 seconds without a connection, or
 after `timeout` seconds without a reply. A request that timed out is not
 retried. Press Ctrl-C to stop a command that is waiting.
 
 If the mPCC refuses the login (401/403), `connect` says so and suggests
-checking the API key or the user and password.
+checking the token, API key, or user and password.
+
+### API tokens
+
+From mPCC 0.7, mash logs in with your own API token. It acts as you, with your
+permissions, and mPCC records your changes under your name. Tokens are for
+staff users. Make one with your password:
+
+```
+connect https://mpcc.example.com user <you> save-token            # named mash@<this host>
+connect https://mpcc.example.com user <you> save-token laptop     # or name it
+```
+
+If `~/.mprov-mash.yaml` doesn't exist yet, mash writes the token there (only
+you can read it), so a plain `connect` uses it from then on. If the file
+already exists, mash never changes it: it shows the token once, for you to put
+in the file as `token: <token>` in place of any `apikey`. Then `connect`
+connects with the new token.
+
+The mPCC's admin lists your tokens and revokes them. `connect` checks a
+token straight away, so a revoked or expired token, or a mash whose API
+version doesn't match the mPCC's, fails at `connect` with the mPCC's reason.
+
+The shared API key (`apikey`) still works where the mPCC allows it, with a
+warning. From 0.7 the mPCC refuses it by default.
 
 ### HTTPS and the mPCC's CA
 
@@ -64,8 +90,7 @@ For an `https` mPCC, mash checks the mPCC's certificate against, in order:
 
 So an mPCC whose certificate is from a site or self-signed CA needs that CA's
 file, either added to the OS bundle or given to mash. A `ca` or `caBundle`
-file that doesn't exist is an error. On a job server, mash also reads the job
-server's own `caBundle` from `jobserver.yaml`. If the certificate doesn't
+file that doesn't exist is an error. If the certificate doesn't
 verify, `connect` shows the reason and points to `ca` and `caBundle`.
 
 ## Models

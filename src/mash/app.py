@@ -6,6 +6,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from io import StringIO
 import csv, base64
 import getpass
+import socket
 import requests
 import shlex
 from urllib.parse import quote
@@ -67,7 +68,11 @@ class MprovShell(cmd.Cmd):
     
   # config files 'connect' reads, in order of preference.  The first
   # readable one wins.
-  configfiles = ["~/.mprov-mash.yaml", "/etc/mprov/mash.yaml", "/etc/mprov/jobserver.yaml"]
+  configfiles = ["~/.mprov-mash.yaml", "/etc/mprov/mash.yaml"]
+  # where 'connect ... save-token' writes a new token, if it isn't there yet
+  tokenfile = "~/.mprov-mash.yaml"
+  # the job server's config, which mash read its shared key from before 0.7
+  jobserverConfig = "/etc/mprov/jobserver.yaml"
   configfile = None
   intro = "Welcome to the mProv shell.  Type help or ? to list commands.\n"
   prompt = '<mProv> # '
@@ -83,7 +88,7 @@ class MprovShell(cmd.Cmd):
   quiet = False
   config_data={}
   failed = False # set by err(); makes a script exit 1
-  configKeys = ('mprovURL', 'apikey', 'timeout', 'caBundle') # the 'global' keys mash reads
+  configKeys = ('mprovURL', 'token', 'apikey', 'timeout', 'caBundle') # the 'global' keys mash reads
   outputMode = "text" # 'output json' prints results as JSON lines (#42)
   dryRun = False # 'dryrun on' shows changes instead of sending them (#43)
   inForLoop = False
@@ -149,6 +154,10 @@ class MprovShell(cmd.Cmd):
       self.err("Unable to find a readable config file.  Tried:")
       for line in skipped:
         self.err(f"  {line}")
+      if os.path.isfile(self.jobserverConfig):
+        # mash read the job server's shared key from here before 0.7 (mash#86)
+        self.err(f"mash no longer reads the job server's {self.jobserverConfig}.  Make a token for "
+                 "yourself with 'connect <mprov_url> user <user> save-token'.")
       return False
 
     with open(self.configfile, "r") as yamlfile:
@@ -160,40 +169,45 @@ class MprovShell(cmd.Cmd):
       result = {}
       for entry in self.config_data:
         if not isinstance(entry, dict):
-          self.err(f"{self.configfile}: expected a mapping or a list of mappings, found a list containing a {type(entry).__name__} (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+          self.err(f"{self.configfile}: expected a mapping or a list of mappings, found a list containing a {type(entry).__name__} (expected format: global:\n  token: <token>\n  mprovURL: <mprov-url>)")
           return False
         result.update(entry)
       self.config_data = result
     if not isinstance(self.config_data, dict):
-      self.err(f"{self.configfile}: expected a mapping or a list of mappings, found {type(self.config_data).__name__} (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+      self.err(f"{self.configfile}: expected a mapping or a list of mappings, found {type(self.config_data).__name__} (expected format: global:\n  token: <token>\n  mprovURL: <mprov-url>)")
       return False
     if 'global' not in self.config_data or not isinstance(self.config_data['global'], dict):
-      self.err(f"{self.configfile}: config has no 'global' section (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
+      self.err(f"{self.configfile}: config has no 'global' section (expected format: global:\n  token: <token>\n  mprovURL: <mprov-url>)")
       return False
     return True
 
   def _checkConfigKeys(self):
     '''Check the keys of the config just loaded (#44).
 
-    mprovURL and apikey must be set.  In mash's own files an unknown key
-    gets a warning (naming the known key it most likely meant), but the
-    job server's jobserver.yaml has keys of its own, so it isn't checked.
+    mprovURL must be set, and one of token and apikey (mash#86).  An
+    unknown key gets a warning naming the known key it most likely meant.
     '''
     conf = self.config_data['global']
-    if os.path.basename(self.configfile) != "jobserver.yaml":
-      known = {k.lower(): k for k in self.configKeys}
-      for key in conf:
-        if key in self.configKeys:
-          continue
-        hint = f"; did you mean '{known[str(key).lower()]}'?" if str(key).lower() in known else ""
-        self.warn(f"Warning: {self.configfile}: unknown key '{key}' in 'global'{hint}")
-      for key in self.config_data:
-        if key != 'global':
-          self.warn(f"Warning: {self.configfile}: unknown section '{key}' (only 'global' is read)")
-    for key in ('mprovURL', 'apikey'):
-      if conf.get(key) in (None, ""):
-        self.err(f"{self.configfile}: '{key}' isn't set in 'global' (expected format: global:\n  apikey: <api-key>\n  mprovURL: <mprov-url>)")
-        return False
+    known = {k.lower(): k for k in self.configKeys}
+    for key in conf:
+      if key in self.configKeys:
+        continue
+      hint = f"; did you mean '{known[str(key).lower()]}'?" if str(key).lower() in known else ""
+      self.warn(f"Warning: {self.configfile}: unknown key '{key}' in 'global'{hint}")
+    for key in self.config_data:
+      if key != 'global':
+        self.warn(f"Warning: {self.configfile}: unknown section '{key}' (only 'global' is read)")
+    expected = "(expected format: global:\n  token: <token>\n  mprovURL: <mprov-url>)"
+    if conf.get('mprovURL') in (None, ""):
+      self.err(f"{self.configfile}: 'mprovURL' isn't set in 'global' {expected}")
+      return False
+    credentials = [key for key in ('token', 'apikey') if conf.get(key) not in (None, "")]
+    if not credentials:
+      self.err(f"{self.configfile}: neither 'token' nor 'apikey' is set in 'global' {expected}")
+      return False
+    if len(credentials) > 1:
+      self.err(f"{self.configfile}: set only one of 'token' and 'apikey' in 'global'")
+      return False
     return True
 
   def default(self,args):
@@ -288,19 +302,28 @@ class MprovShell(cmd.Cmd):
     '''
 Connect to an mProv Control Center.
 
-Usage: 
-    connect <mprov_url> apikey <api_key> - Connects with an API key
+Usage:
+    connect <mprov_url> token <token> - Connects with your API token (mPCC 0.7 or later)
 
     connect <mprov_url> user <user> password <password> - connects with a username and password.
 
     connect <mprov_url> user <user> - prompts for the password when run from a terminal.
 
+    connect <mprov_url> user <user> [password <password>] save-token [<name>] - makes
+    an API token for you (named <name>, default mash@<this host>) and connects with
+    it.  The token is written to ~/.mprov-mash.yaml if that file doesn't exist yet;
+    otherwise it's shown once, to add to your config yourself.  Tokens are for staff
+    users.
+
+    connect <mprov_url> apikey <api_key> - Connects with the shared API key.  It's
+    being replaced by tokens: the mPCC refuses it by default from 0.7.
+
     Add 'ca <file>' to any of these to verify an https mPCC's certificate
     against that CA file, e.g. 'connect https://mpcc apikey <key> ca /etc/mprov/mpcc-ca.pem'.
     
-    connect - With no arguments, mash reads the mprovURL and apikey from the 'global'
-    section of the first readable file of: ~/.mprov-mash.yaml, /etc/mprov/mash.yaml,
-    /etc/mprov/jobserver.yaml (the job server's own config).  An optional 'timeout'
+    connect - With no arguments, mash reads the mprovURL and token (or apikey) from
+    the 'global' section of the first readable file of: ~/.mprov-mash.yaml,
+    /etc/mprov/mash.yaml.  An optional 'timeout'
     there sets how many seconds to wait for a reply (default 120), and an optional
     'caBundle' the CA file, as 'ca' does.
 
@@ -323,7 +346,9 @@ Usage:
         return
       if not self._checkConfigKeys():
         return
-      scheme, credential = 'apikey', self.config_data['global']['apikey']
+      conf = self.config_data['global']
+      scheme = 'token' if conf.get('token') not in (None, "") else 'apikey'
+      credential = conf[scheme]
       self.mprovURL = self.config_data['global']['mprovURL']
       if 'timeout' in self.config_data['global']:
         try:
@@ -336,13 +361,19 @@ Usage:
         self.session.timeout = (DEFAULT_TIMEOUT[0], readTimeout)
       caBundle = self.config_data['global'].get('caBundle')
 
+    elif len(args) == 3 and args[1] == 'token':
+      # a person's API token (mash#86)
+      self.mprovURL = args[0]
+      scheme, credential = 'token', args[2]
+
     elif len(args) == 3 and args[1] == 'apikey':
       # we are using an API key
       self.mprovURL = args[0]
       scheme, credential = 'apikey', args[2]
 
-    elif args[1:2] == ['user'] and (len(args) == 3 or (len(args) == 5 and args[3] == 'password')):
+    elif args[1:2] == ['user'] and self._userArgs(args) is not None:
       # We are using plain text auth
+      args, saveToken = self._userArgs(args)
       if len(args) == 5:
         password = args[4]
       elif sys.stdin.isatty():
@@ -359,7 +390,8 @@ Usage:
       scheme, credential = 'user', (args[2], password)
 
     else:
-      self.err("Usage: connect [<mprov_url> apikey <api_key> | <mprov_url> user <user> [password <password>]] [ca <file>]")
+      self.err("Usage: connect [<mprov_url> token <token> | <mprov_url> user <user> [password <password>] "
+               "[save-token [<name>]] | <mprov_url> apikey <api_key>] [ca <file>]")
       return
     # Everything that talks to the mPCC concatenates paths onto mprovURL, so
     # store it without a trailing slash; callers add the slash they need.
@@ -369,7 +401,104 @@ Usage:
     if ca is False:
       return
     self.session.caBundle = ca
+    if scheme == 'user' and saveToken is not None:
+      token = self._makeToken(self._authHeader(scheme, credential), saveToken, caBundle)
+      if token is None:
+        return
+      scheme, credential = 'token', token
+    if scheme == 'apikey':
+      self.warn("Warning: the shared API key is being replaced by per-user tokens; the mPCC refuses it "
+                "by default from 0.7.  Make yourself a token with 'connect <mprov_url> user <user> save-token'.")
     self._connectToMPCC(self._authHeader(scheme, credential))
+
+  @staticmethod
+  def _userArgs(args):
+    '''Split connect's 'user' form into (its args, the save-token name).
+
+    The name is None without 'save-token', or the name to give the new
+    token (mash@<host> if none is given).  None if args isn't a 'user' form
+    connect knows.'''
+    saveToken = None
+    if 'save-token' in args:
+      at = args.index('save-token')
+      rest = args[at + 1:]
+      if len(rest) > 1:
+        return None
+      saveToken = rest[0] if rest else f"mash@{socket.gethostname()}"
+      args = args[:at]
+    if args[1:2] == ['user'] and (len(args) == 3 or (len(args) == 5 and args[3] == 'password')):
+      return args, saveToken
+    return None
+
+  def _makeToken(self, basicHeader, name, caBundle):
+    '''Make an API token for the user in basicHeader, named name (mash#86).
+
+    POSTs /tokens/ (mPCC 0.7 or later), then writes the token to
+    tokenfile if that doesn't exist yet, or shows it once to add by hand.
+    Returns the token, or None after reporting why there isn't one.'''
+    url = f"{self.mprovURL}/tokens/"
+    headers = {'Authorization': basicHeader, 'Content-Type': 'application/json',
+               'mProv-Version': self.mashVersion}
+    try:
+      response = self.session.post(url, json={"name": name}, headers=headers)
+    except requests.RequestException as e:
+      self._reportUnreachable(e)
+      return None
+    if response.status_code != 201:
+      if response.status_code == 404:
+        reason = "this mPCC has no API tokens (they need mPCC 0.7 or later)"
+      else:
+        reason = self._detail(response)
+      self.err(f"Error: mPCC {self.mprovURL} didn't make a token, code: {response.status_code}: {reason}")
+      return None
+    try:
+      token = response.json()['token']
+    except (ValueError, KeyError, TypeError):
+      self.err(f"Error: mPCC {self.mprovURL} made a token but didn't send it back: {response.text.strip()[:200]}")
+      return None
+    self._saveToken(token, name, caBundle)
+    return token
+
+  def _saveToken(self, token, name, caBundle):
+    '''Write a new token to tokenfile, only if it doesn't exist yet;
+    otherwise (or if writing fails) show it once.'''
+    path = os.path.expanduser(self.tokenfile)
+    conf = {'mprovURL': self.mprovURL, 'token': token}
+    if caBundle:
+      conf['caBundle'] = os.path.expanduser(str(caBundle))
+    try:
+      # O_EXCL: never overwrite an existing config
+      fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except OSError as e:
+      why = "it already exists" if isinstance(e, FileExistsError) else f"it can't be written ({e.strerror})"
+      self.print(f"Made the token '{name}'.  It's shown only this once, and not saved to {path} because {why}:")
+      self.print(f"  {token}")
+      self.print("Put it in the 'global' section of your mash config as 'token: <token>' (in place of any 'apikey').")
+      return
+    with os.fdopen(fd, "w") as f:
+      f.write(f"# written by mash 'connect ... save-token' ({name})\n")
+      yaml.safe_dump({'global': conf}, f, default_flow_style=False, sort_keys=False)
+    self.print(f"Made the token '{name}' and saved it to {path}; 'connect' with no arguments uses it.")
+
+  @staticmethod
+  def _detail(response):
+    'The reason in an mPCC error reply: its "detail", or the start of the body.'
+    try:
+      body = response.json()
+      if isinstance(body, dict) and body.get('detail'):
+        return str(body['detail'])
+      return json.dumps(body)[:300]
+    except ValueError:
+      return response.text.strip()[:300]
+
+  def _reportUnreachable(self, e):
+    'Report a request to the mPCC that failed before any reply.'
+    if isinstance(e, requests.exceptions.SSLError):
+      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}: {e}")
+      self.err("If the mPCC's certificate is from a site or self-signed CA, give connect "
+               "that CA's file with 'ca <file>', or set 'caBundle' in the config.")
+    else:
+      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}")
 
   def _caBundle(self, configured):
     '''The CA file to verify the mPCC's certificate with (mash#86).
@@ -396,14 +525,15 @@ Usage:
   def _authHeader(self, scheme, credential):
     '''The Authorization header for one of connect's ways to log in.
 
-    Every way connect authenticates (a config file, 'apikey', 'user') ends
-    up here, so a new one (a per-user token, mprov_control_center#381) is
-    one more branch.'''
+    Every way connect authenticates (a config file, 'token', 'user',
+    'apikey') ends up here.'''
     if scheme == 'apikey':
       return f"Api-Key {credential}"
     if scheme == 'user':
       user, password = credential
       return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    if scheme == 'token':
+      return f"Token {credential}"
     raise ValueError(f"unknown auth scheme {scheme!r}")
 
 
@@ -776,26 +906,45 @@ Usage:
       self.session.mount('https://', adapter)
       self.session.mount('http://', adapter)
       response = self.session.get(self.mprovURL, stream=True)
-    except requests.exceptions.SSLError as e:
-      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}: {e}")
-      self.err("If the mPCC's certificate is from a site or self-signed CA, give connect "
-               "that CA's file with 'ca <file>', or set 'caBundle' in the config.")
-      return
-    except Exception:
-      self.err(f"Error: Unable to communicate with mPCC {self.mprovURL}")
+    except Exception as e:
+      self._reportUnreachable(e)
       return
     self._checkMPCCVersion(response)
     if response.status_code==200:
+      # The mPCC's / answers without a login, so check a token here: a bad
+      # one fails now, not on the first command (mash#86).
+      if authHeader.startswith("Token ") and not self._checkToken():
+        self.models = {}
+        return
       # we connected, get the supported data models.
       self._getMPCCModels()
     else:
-      # the mPCC's / needs a login, so a bad key or password lands here (#38).
       self.models = {}
-      hint = "; check the API key or user and password" if response.status_code in (401, 403) else ""
+      hint = "; check the token, API key, or user and password" if response.status_code in (401, 403) else ""
       self.err(f"Error: Unable to connect to mPCC {self.mprovURL}, code: {response.status_code}{hint}")
       body = response.text.strip()
       if body:
         self.err(body[:500])
+  def _checkToken(self):
+    '''Whether the mPCC accepts this connection's token (mash#86).
+
+    GET /tokens/ is cheap and needs a valid token; a revoked or expired
+    one, or an API version mismatch (426), is reported with the mPCC's
+    reason.'''
+    try:
+      response = self.session.get(f"{self.mprovURL}/tokens/")
+    except requests.RequestException as e:
+      self._reportUnreachable(e)
+      return False
+    if response.status_code == 200:
+      return True
+    if response.status_code == 404:
+      reason = "this mPCC has no API tokens (they need mPCC 0.7 or later)"
+    else:
+      reason = self._detail(response)
+    self.err(f"Error: mPCC {self.mprovURL} refused the token, code: {response.status_code}: {reason}")
+    return False
+
   def _checkMPCCVersion(self, response):
     """Warn (not fail) if the mPCC's reported version differs from mash's (mash#83).
 
